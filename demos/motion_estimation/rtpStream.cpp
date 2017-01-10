@@ -1,12 +1,67 @@
 #include "config.h"
 #include "rtpStream.h"
 
+extern void DumpHex(const void* data, size_t size);
+
+#define RTP_TO_YUV_ONGPU 1 // Offload colour conversion to GPU if set
+#define PITCH 4
+#if RTP_TO_YUV_ONGPU
+#include "cudaYUV.h"
+
+void * mRGBA;
+void * mYUV;
+// ConvertRGBA
+
+bool ConvertRGBtoYUV( void* input, void** output, size_t width, size_t height )
+{	
+	if( !input || !output )
+		return false;
+
+	if( !mRGBA )
+	{
+		if( CUDA_FAILED(cudaMalloc(&mRGBA, (width * height) * 4)) )
+		{
+			printf(LOG_CUDA "rtpStream -- failed to allocate memory for %ux%u RGBA texture\n", width, height);
+			return false;
+		}
+	}
+	if( !mYUV )
+	{
+		if( CUDA_FAILED(cudaMalloc(&mYUV, (width * height) * 2)) )
+		{
+			printf(LOG_CUDA "rtpStream -- failed to allocate memory for %ux%u YUV texture\n", width, height);
+			return false;
+		}
+	}
+	
+	// RTP is YUV
+
+	cudaMemcpy( mRGBA, input, (width * height) * PITCH, cudaMemcpyHostToDevice );
+#if 0
+	// Push the RGB data over to the GPU
+	if( CUDA_FAILED(cudaRGBToYUV((uint8_t*)mRGBA, (uint8_t*)mYUV, (size_t)width, (size_t)height)) )
+#else
+	// Push the RGB data over to the GPU
+	if( CUDA_FAILED(cudaRGBAToYUV((uint8_t*)mRGBA, (uint8_t*)mYUV, (size_t)width, (size_t)height)) )
+#endif
+	{
+		return false;
+	}   
+	
+    // Pull the color converted YUV data off the GPU
+	cudaMemcpy( output, mYUV, (width * height) * 2, cudaMemcpyDeviceToHost );
+
+	return true;
+}
+
+#else
 typedef struct float4 {
     float x;
     float y;
     float z;
     float w;
 } float4;
+#endif
 
 /* 
  * error - wrapper for perror
@@ -22,21 +77,18 @@ void rgbtoyuv(int y, int x, char* yuv, char* rgb)
   int size;
   
   cc=0;
-  size = x*3;
-  for (c=0;c<size;c+=3)
+  size = x*PITCH;
+  for (c=0;c<size;c+=PITCH)
   {
     R=rgb[c];
     G=rgb[c+1];
     B=rgb[c+2];
     /* sample luma for every pixel */
     Y  =      (0.257 * R) + (0.504 * G) + (0.098 * B) + 16;
-#if GSTREAMER
-    yuv[cc]=Y;
-    if (c % 2 == 0)
-#else
+
     yuv[cc+1]=Y;
     if (c % 2 != 0)
-#endif
+
     {
         V =  (0.439 * R) - (0.368 * G) - (0.071 * B) + 128;
         yuv[cc]=V;
@@ -139,40 +191,14 @@ int rtpStream::Transmit(char* rgbframe)
     char *yuv;
     int c=0;
     int n=0;
-    
 
+#if RTP_TO_YUV_ONGPU
+    // Convert the whole frame into YUV
+    char yuvdata[mWidth * mHeight * 2];
+	ConvertRGBtoYUV((void*)rgbframe, (void**)&yuvdata, mWidth, mHeight);
+#endif
+    
     sequence_number=0;
-    
-#if 0
-#if 0  
-    float4 *RGBAf = (float4*)rgbframe;
-    
-    // RGBAf to RGB
-    for( int y=0; y < 100; y++ )
-	{
-		for( int x=0; x < mWidth; x++ )
-		{
-			rgbframe[(y*(mWidth*3))+(x*3)] = (char)RGBAf[(y*mWidth)+x].x;
-			rgbframe[(y*(mWidth*3))+(x*3)+1] = (char)RGBAf[(y*mWidth)+x].y;
-			rgbframe[(y*(mWidth*3))+(x*3)+2] = (char)RGBAf[(y*mWidth)+x].z;
-		}
-	}
-#else
-    for( int y=0; y < mHeight; y++ )
-	{
-		for( int x=0; x < mWidth; x+=3 )
-		{
-			rgbframe[(y*(mWidth*3))+(x*3)] = (char)0xff;
-			rgbframe[(y*(mWidth*3))+(x*3)+1] = (char)0;
-			rgbframe[(y*(mWidth*3))+(x*3)+2] = (char)0;
-		}
-	}
-#endif
-#endif
-
-    
-    /* get a message from the user */
-    bzero(packet.data, MAX_BUFSIZE);
     
     /* send a frame */
     {
@@ -184,13 +210,15 @@ int rtpStream::Transmit(char* rgbframe)
         int x,last = 0;
         if (c==mHeight-1) last=1;
         update_header((header*)&packet, c, last, time, RTP_SOURCE);
-        x = c * (mWidth * 3);
         
-#if 1
-        // CPU conversion TODO: offload to GPU.
-        rgbtoyuv(mHeight, mWidth, packet.data, (char*)&rgbframe[x]);
+#if RTP_TO_YUV_ONGPU
+        x = c * (mWidth * 2);
+        // Copy previously converted line into header
+		memcpy(packet.data, (void*)&yuvdata[x], mWidth * 2);
 #else
-        memcpy((char*)packet.data, (char*)&rgbframe[x], mWidth* 3);
+        x = c * (mWidth * PITCH);
+        // CPU conversion, might as well do one line at a time
+        rgbtoyuv(mHeight, mWidth, packet.data, (char*)&rgbframe[x]);
 #endif
 
 #if ARM

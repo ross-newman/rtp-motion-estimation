@@ -26,6 +26,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+#include <stdio.h>
 #include <iostream>
 #include <sstream>
 #include <iomanip>
@@ -53,16 +54,19 @@
 
 #define HEIGHT 480  // Lower resolution stream for RTP
 #define WIDTH 640
+
+#define GST_MULTICAST 0
 #define GST_SOURCE 1
 #define GST_RTP_SINK 1
 
-#if GST_RTP_SINK 
+#if GST_RTP_SINK
 #include "rtpStream.h"
 #endif
 
+extern void DumpHex(const void* data, size_t size);
 using namespace nvxio;
 
-#if GST_SOURCE
+#if 1
 class gstSource : public FrameSource
 {
 public:
@@ -72,7 +76,7 @@ public:
     FrameSource::Parameters getConfiguration();
 	bool setConfiguration(const FrameSource::Parameters& params) {};
 	void close();
-	void dumpVxImage(vx_image image);
+	static void dumpVxImage(vx_image image);
 private:
     int mHeight;
 	ContextGuard *context;
@@ -86,10 +90,16 @@ gstSource::gstSource(nvxio::ContextGuard *con)
 {
     context = con;
 	std::ostringstream pipeline;
-//	pipeline << "udpsrc address=239.192.1.44 port=5004 caps=\"application/x-rtp, media=(string)video, clock-rate=(int)90000, encoding-name=(string)RAW, sampling=(string)YCbCr-4:2:2, depth=(string)8, width=(string)" << WIDTH << ", height=(string)" << HEIGHT << ", payload=(int)96\" ! ";
+#if GST_MULTICAST
+	pipeline << "udpsrc address=239.192.1.44 port=5004 caps=\"application/x-rtp, media=(string)video, clock-rate=(int)90000, encoding-name=(string)RAW, sampling=(string)YCbCr-4:2:2, depth=(string)8, width=(string)" << WIDTH << ", height=(string)" << HEIGHT << ", payload=(int)96\" ! ";
+    printf("udpsrc address=239.192.1.44 port=5004 \n");
+#else
 	pipeline << "udpsrc port=5004 caps=\"application/x-rtp, media=(string)video, clock-rate=(int)90000, encoding-name=(string)RAW, sampling=(string)YCbCr-4:2:2, depth=(string)8, width=(string)" << WIDTH << ", height=(string)" << HEIGHT << ", payload=(int)96\" ! ";
+    printf("udpsrc port=5004 \n");
+#endif
 	pipeline << "queue ! rtpvrawdepay ! queue ! ";
 	pipeline << "appsink name=mysink";
+
 	static  std::string pip = pipeline.str();
 	camera = gstCamera::Create(pip, HEIGHT, WIDTH);
 }
@@ -117,56 +127,105 @@ void gstSource::dumpVxImage(vx_image image)
     vxQueryImage( image, VX_IMAGE_ATTRIBUTE_WIDTH,  &width,  sizeof( width ) );
     vxQueryImage( image, VX_IMAGE_ATTRIBUTE_HEIGHT, &height, sizeof( height ) );
     vxQueryImage( image, VX_IMAGE_FORMAT, &format, sizeof( format ) );
-    vxQueryImage( image, VX_IMAGE_PLANES, &planes, sizeof( planes ) ); 	
+    vxQueryImage( image, VX_IMAGE_PLANES, &planes, sizeof( planes ) );
     vxQueryImage( image, VX_IMAGE_SPACE, &space, sizeof( space ) );
     vxQueryImage( image, VX_IMAGE_RANGE, &range, sizeof( range ) );
     vxQueryImage( image, VX_IMAGE_SIZE, &size, sizeof( size ) );
     vxQueryImage( image, VX_IMAGE_MEMORY_TYPE, &type, sizeof( type ) );
-    
-	printf(">>> vxQueary :\n\twidth = %d\n\theight = %d\n\tplanes= %d\n\tsize = %d\n\tspace = ", (int)width, (int)height, (int)planes, ( int)size);
 
+	printf(">>> vxQueary :\n\twidth = %d\n\theight = %d\n\tplanes= %d\n\tsize = %d\n\tformat = ", (int)width, (int)height, (int)planes, ( int)size);
+
+	switch (format)
+	{
+	case VX_COLOR_SPACE_NONE :
+		printf("VX_DF_IMAGE_VIRT");
+		break;
+	case VX_DF_IMAGE_RGB :
+		printf("VX_DF_IMAGE_RGB");
+		break;
+	case VX_DF_IMAGE_RGBX :
+		printf("VX_DF_IMAGE_RGBX");
+		break;
+	case VX_DF_IMAGE_NV12 :
+		printf("VX_DF_IMAGE_NV12");
+		break;
+	case VX_DF_IMAGE_NV21 :
+		printf("VX_DF_IMAGE_NV21");
+		break;
+	case VX_DF_IMAGE_UYVY :
+		printf("VX_DF_IMAGE_UYVY");
+		break;
+	case VX_DF_IMAGE_YUYV :
+		printf("VX_DF_IMAGE_YUYV");
+		break;
+	case VX_DF_IMAGE_IYUV :
+		printf("VX_DF_IMAGE_IYUV");
+		break;
+	case VX_DF_IMAGE_YUV4 :
+		printf("VX_DF_IMAGE_YUV4");
+		break;
+	case VX_DF_IMAGE_U8 :
+		printf("VX_DF_IMAGE_U8");
+		break;
+	case VX_DF_IMAGE_U16 :
+		printf("VX_DF_IMAGE_U16");
+		break;
+	case VX_DF_IMAGE_S16 :
+		printf("VX_DF_IMAGE_S16");
+		break;
+	case VX_DF_IMAGE_U32 :
+		printf("VX_DF_IMAGE_U32");
+		break;
+	case VX_DF_IMAGE_S32 :
+		printf("VX_DF_IMAGE_S32");
+		break;
+	default :
+		printf("???");
+		break;
+	}
+	printf("\n\tspace = ");
 	switch (space)
 	{
 	case VX_COLOR_SPACE_NONE :
-		printf("VX_COLOR_SPACE_NONE");	
+		printf("VX_COLOR_SPACE_NONE");
 		break;
 	case VX_COLOR_SPACE_BT601_525 :
-		printf("VX_COLOR_SPACE_BT601_525");	
+		printf("VX_COLOR_SPACE_BT601_525");
 		break;
 	case VX_COLOR_SPACE_BT601_625 :
-		printf("VX_COLOR_SPACE_BT601_625 ");	
+		printf("VX_COLOR_SPACE_BT601_625 ");
 		break;
 	case VX_COLOR_SPACE_BT709 :
-		printf("VX_COLOR_SPACE_BT709 ");	
+		printf("VX_COLOR_SPACE_BT709 ");
 		break;
 	default :
-		printf("???");	
+		printf("???");
 		break;
 	}
 	printf("\n\trange = ");
 	switch (range)
 	{
 	case VX_CHANNEL_RANGE_FULL :
-		printf("VX_CHANNEL_RANGE_FULL");	
+		printf("VX_CHANNEL_RANGE_FULL");
 		break;
 	case VX_CHANNEL_RANGE_RESTRICTED :
-		printf("VX_CHANNEL_RANGE_RESTRICTED");	
+		printf("VX_CHANNEL_RANGE_RESTRICTED");
 		break;
 	default :
-		printf("???");	
+		printf("???");
 		break;
 	}
 	printf("\n\tmemory = ");
 	switch (type)
 	{
 	case VX_MEMORY_TYPE_NONE  :
-		printf("VX_MEMORY_TYPE_NONE ");	
+		printf("VX_MEMORY_TYPE_NONE ");
 		break;
 	case VX_MEMORY_TYPE_HOST  :
-		printf("VX_MEMORY_TYPE_HOST ");	
+		printf("VX_MEMORY_TYPE_HOST ");
 		break;
 	default :
-		printf("???");	
+		printf("???");
 		break;
 	}
 	printf("\n");
@@ -188,7 +247,7 @@ FrameSource::FrameStatus gstSource::fetch(vx_image image, vx_uint32 timeout)
 
 	const vx_rectangle_t rect = { 0, 0, WIDTH, HEIGHT};
 	const vx_imagepatch_addressing_t src_addr = {
-        WIDTH, HEIGHT, sizeof(vx_uint8)*3, WIDTH * sizeof(vx_uint8)*3, VX_SCALE_UNITY, VX_SCALE_UNITY, 1, 1 };
+        WIDTH, HEIGHT, sizeof(vx_uint8)*4, WIDTH * sizeof(vx_uint8)*4, VX_SCALE_UNITY, VX_SCALE_UNITY, 1, 1 };
 
 	if (camera->ConvertYUVtoRGBA(GPUbuffer, (void**)&buffer))
 	{
@@ -198,8 +257,8 @@ FrameSource::FrameStatus gstSource::fetch(vx_image image, vx_uint32 timeout)
 							&src_addr,
 							buffer,
 							VX_WRITE_ONLY,
-							VX_MEMORY_TYPE_HOST 
-		);		
+							VX_MEMORY_TYPE_HOST
+		);
 	}
 	else
 	{
@@ -208,7 +267,7 @@ FrameSource::FrameStatus gstSource::fetch(vx_image image, vx_uint32 timeout)
 	}
 
 	status = vxGetStatus((vx_reference)image);
-	if (status == VX_SUCCESS) 
+	if (status == VX_SUCCESS)
 		return OK;
 	else
 	{
@@ -223,14 +282,14 @@ void gstSource::close()
 	return;
 }
 
-FrameSource::Parameters gstSource::getConfiguration() 
+FrameSource::Parameters gstSource::getConfiguration()
 {
 	FrameSource::Parameters param;
 	param.format = NVXCU_DF_IMAGE_U8;
 	param.fps = 25;
 	param.frameHeight = HEIGHT;
 	param.frameWidth = WIDTH;
-	
+
 	return param;
 };
 #else
@@ -292,13 +351,12 @@ static bool read(const std::string& configFile,
 
 int main(int argc, char** argv)
 {
-	char motion_buffer[HEIGHT * WIDTH * 3];
 	int deviceCount = 0;
 	cudaGetDeviceCount(&deviceCount);
 	printf("CUDA device count %d\n", deviceCount);
-	
+
 #if GST_SOURCE
-    std::cout << "Abaco Systems modified motion estimation for RTP streams\n";
+    std::cout << "Abaco Systems modified motion estimation for Gstreamer enabled RTP streams\n";
 #endif
     try
     {
@@ -317,15 +375,6 @@ int main(int argc, char** argv)
         app.addOption('s', "source", "Source URI", nvxio::OptionHandler::string(&sourceUri));
 #endif
         app.init(argc, argv);
-        
-#if GST_RTP_SINK 
-        //
-        // Initalise RTP streaming output
-        //
-
-		rtpStream rtpStreaming(HEIGHT, WIDTH, (char*)"127.0.0.1", 5005);
-		rtpStreaming.Open();
-#endif        
 
         //
         // Reads and checks input parameters
@@ -374,6 +423,17 @@ int main(int argc, char** argv)
 
         nvxio::FrameSource::Parameters frameConfig = frameSource->getConfiguration();
 
+#if GST_RTP_SINK
+        //
+        // Initalise RTP streaming output
+        //
+
+		FrameSource::Parameters srcparams = frameSource->getConfiguration();
+		rtpStream rtpStreaming(srcparams.frameHeight, srcparams.frameWidth, (char*)"127.0.0.1", 5005);
+		rtpStreaming.Open();
+
+#endif
+
         //
         // Create a Render
         //
@@ -399,7 +459,7 @@ int main(int argc, char** argv)
         vx_delay frame_delay = vxCreateDelay(context, (vx_reference)frameExemplar, 2);
         NVXIO_CHECK_REFERENCE(frame_delay);
         vxReleaseImage(&frameExemplar);
-        
+
         vx_image prevFrame = (vx_image)vxGetReferenceFromDelay(frame_delay, -1);
         vx_image currFrame = (vx_image)vxGetReferenceFromDelay(frame_delay, 0);
 
@@ -501,7 +561,10 @@ int main(int argc, char** argv)
             //
             // Render
             //
-
+#if GST_SOURCE
+			// Some debug
+			// gstSource::dumpVxImage(prevFrame);
+#endif
             render->putImage(prevFrame);
 
             nvxio::Render::MotionFieldStyle mfStyle = {
@@ -526,35 +589,50 @@ int main(int argc, char** argv)
             };
 
             render->putTextViewport(msg.str(), textStyle);
-            
-#if GST_RTP_SINK 
-	{
-		int result;
-		const vx_rectangle_t rect = { 0, 0, WIDTH, HEIGHT};
-		const vx_imagepatch_addressing_t src_addr = {
-		WIDTH, HEIGHT, sizeof(vx_uint8)*3, WIDTH * sizeof(vx_uint8)*3, VX_SCALE_UNITY, VX_SCALE_UNITY, 1, 1 };
 
-		vx_image motion_rgb = vxCreateImage(context, WIDTH, HEIGHT, VX_DF_IMAGE_RGB);
-		vx_image motion = ime.getMotionField();
-		result = vxuColorConvert(context, motion, motion_rgb);
-		
-		if (result != VX_SUCCESS)
-		{
-			printf("Error converting\n");
-		}
+#if GST_RTP_SINK
+			{
+				int result;
 
-		vxCopyImagePatch(	prevFrame,
-							&rect,
-							0,
-							&src_addr,
-							motion_buffer,
-							VX_READ_ONLY,
-							VX_MEMORY_TYPE_HOST 
-		);	
-		 
-		rtpStreaming.Transmit(motion_buffer);
-	}
-#endif           
+				char motion_buffer[frameConfig.frameWidth * frameConfig.frameHeight * 4];
+
+//printf(">>>>>>>>>>>> %d %d\n", frameConfig.frameWidth, frameConfig.frameHeight);
+
+				const vx_rectangle_t rect = { 0, 0, frameConfig.frameWidth, frameConfig.frameHeight};
+				const vx_imagepatch_addressing_t src_addr = {
+					frameConfig.frameWidth,
+					frameConfig.frameHeight,
+
+					sizeof(vx_uint8)*4,
+					frameConfig.frameWidth * sizeof(vx_uint8)*4,
+
+					VX_SCALE_UNITY,
+					VX_SCALE_UNITY,
+					1,
+					1 };
+
+				vx_image motion_rgb = vxCreateImage(context, frameConfig.frameWidth, frameConfig.frameHeight, VX_DF_IMAGE_RGB);
+				vx_image motion = ime.getMotionField();
+
+				// More debug
+				printf("NVX_DF_IMAGE_2F32\n");
+				gstSource::dumpVxImage(motion);
+				DumpHex(motion, 100);
+
+				{
+					vxCopyImagePatch(	prevFrame,
+										&rect,
+										0,
+										&src_addr,
+										motion_buffer,
+										VX_READ_ONLY,
+										VX_MEMORY_TYPE_HOST
+					);
+				}
+
+				rtpStreaming.Transmit(motion_buffer);
+			}
+#endif
 
             if (!render->flush())
             {

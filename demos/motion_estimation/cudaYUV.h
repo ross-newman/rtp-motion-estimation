@@ -26,6 +26,12 @@ cudaError_t cudaNV12SetupColorspace( float hue = 0.0f );
 cudaError_t cudaYUVToRGBA( uint8_t* input, size_t inputPitch, uint8_t* output, size_t outputPitch, size_t width, size_t height );
 cudaError_t cudaYUVToRGBA( uint8_t* input, uint8_t* output, size_t width, size_t height );
 
+cudaError_t cudaRGBAToYUV( uint8_t* input, size_t inputPitch, uint8_t* output, size_t outputPitch, size_t width, size_t height );
+cudaError_t cudaRGBAToYUV( uint8_t* input, uint8_t* output, size_t width, size_t height );
+
+cudaError_t cudaRGBToYUV( uint8_t* input, size_t inputPitch, uint8_t* output, size_t outputPitch, size_t width, size_t height );
+cudaError_t cudaRGBToYUV( uint8_t* input, uint8_t* output, size_t width, size_t height );
+
 ///@}
 
 #endif
