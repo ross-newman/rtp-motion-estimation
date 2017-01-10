@@ -431,7 +431,6 @@ int main(int argc, char** argv)
 		FrameSource::Parameters srcparams = frameSource->getConfiguration();
 		rtpStream rtpStreaming(srcparams.frameHeight, srcparams.frameWidth, (char*)"127.0.0.1", 5005);
 		rtpStreaming.Open();
-
 #endif
 
         //
@@ -555,7 +554,7 @@ int main(int argc, char** argv)
 
             if (!eventData.pause)
             {
-                ime.printPerfs();
+ //               ime.printPerfs();
             }
 
             //
@@ -594,7 +593,7 @@ int main(int argc, char** argv)
 			{
 				int result;
 
-				char motion_buffer[frameConfig.frameWidth * frameConfig.frameHeight * 4];
+				char roi[frameConfig.frameWidth * frameConfig.frameHeight * 4];
 
 //printf(">>>>>>>>>>>> %d %d\n", frameConfig.frameWidth, frameConfig.frameHeight);
 
@@ -611,16 +610,36 @@ int main(int argc, char** argv)
 					1,
 					1 };
 
-				vx_image motion_rgb = vxCreateImage(context, frameConfig.frameWidth, frameConfig.frameHeight, VX_DF_IMAGE_RGB);
 				vx_image motion = ime.getMotionField();
 
-				// More debug
-				printf("NVX_DF_IMAGE_2F32\n");
-				gstSource::dumpVxImage(motion);
-				DumpHex(motion, 100);
+				{
+					// Extract image
+					vxCopyImagePatch(	prevFrame,
+										&rect,
+										0,
+										&src_addr,
+										roi,
+										VX_READ_ONLY,
+										VX_MEMORY_TYPE_HOST
+					);
+				}
 
 				{
-					vxCopyImagePatch(	prevFrame,
+					char* motion_buffer[frameConfig.frameWidth+1 / 2 * frameConfig.frameHeight+1 / 2 * sizeof(vx_float32)*2];
+					const vx_rectangle_t rect = { 0, 0, frameConfig.frameWidth+1 / 2, frameConfig.frameHeight+1 / 2};
+					const vx_imagepatch_addressing_t src_addr = {
+						frameConfig.frameWidth+1 / 2,
+						frameConfig.frameHeight+1 / 2,
+
+						sizeof(vx_float32)*2,
+						frameConfig.frameWidth+1 / 2 * sizeof(vx_float32)*2,
+						VX_SCALE_UNITY,
+						VX_SCALE_UNITY,
+						1,
+						1 };
+
+					// Extract motion fields
+					vxCopyImagePatch(	motion,
 										&rect,
 										0,
 										&src_addr,
@@ -628,9 +647,42 @@ int main(int argc, char** argv)
 										VX_READ_ONLY,
 										VX_MEMORY_TYPE_HOST
 					);
+					vx_float32 *motion2u32 = 0;
+					motion2u32 = (vx_float32 *)motion_buffer;
+
+					// More debug
+					printf("NVX_DF_IMAGE_2F32 %d\n", sizeof(vx_float32));
+					gstSource::dumpVxImage(motion);
+					DumpHex(motion_buffer, 112);
+/* Produces the output (example for horizontal scrolling bars (default gstreamer test pattern) */
+NVX_DF_IMAGE_2F32 4
+>>> vxQueary :
+	width = 320
+	height = 240
+	planes= 1
+	size = 614400
+	format = ???
+	space = VX_COLOR_SPACE_NONE
+	range = VX_CHANNEL_RANGE_FULL
+	memory = VX_MEMORY_TYPE_NONE
+80 EB 80 EB 80 EB 80 EB  80 EB 80 EB 80 EB 80 EB  |  ................
+80 EB 80 EB 80 EB 80 EB  80 EB 80 EB 80 EB 80 EB  |  ................
+80 EB 80 EB 92 D1 88 31  D6 52 91 52 D6 52 91 52  |  .......1.R.R.R.R
+D6 52 91 52 D6 52 91 52  D6 52 91 52 D6 52 91 52  |  .R.R.R.R.R.R.R.R
+D6 52 91 52 D6 52 91 52  D6 52 91 52 D6 52 91 52  |  .R.R.R.R.R.R.R.R
+D6 52 91 52 D6 52 91 52  D6 52 91 52 D6 52 91 52  |  .R.R.R.R.R.R.R.R
+D6 52 91 52 D6 52 91 52  D6 52 91 52 D6 52 91 52  |  .R.R.R.R.R.R.R.R
+*/
+					int c=0;
+					for (int p=0; p<20; p++)
+					{
+//						printf("(%d, %lf, %lf)  ", p, motion2u32[c], motion2u32[c+1]);
+						c+=2;
+						if (p % 5 == 0) printf("\n ");
+					}
 				}
 
-				rtpStreaming.Transmit(motion_buffer);
+				rtpStreaming.Transmit(roi);
 			}
 #endif
 

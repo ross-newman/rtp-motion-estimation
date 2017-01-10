@@ -13,7 +13,7 @@ void * mYUV;
 // ConvertRGBA
 
 bool ConvertRGBtoYUV( void* input, void** output, size_t width, size_t height )
-{	
+{
 	if( !input || !output )
 		return false;
 
@@ -33,7 +33,7 @@ bool ConvertRGBtoYUV( void* input, void** output, size_t width, size_t height )
 			return false;
 		}
 	}
-	
+
 	// RTP is YUV
 
 	cudaMemcpy( mRGBA, input, (width * height) * PITCH, cudaMemcpyHostToDevice );
@@ -46,8 +46,8 @@ bool ConvertRGBtoYUV( void* input, void** output, size_t width, size_t height )
 #endif
 	{
 		return false;
-	}   
-	
+	}
+
     // Pull the color converted YUV data off the GPU
 	cudaMemcpy( output, mYUV, (width * height) * 2, cudaMemcpyDeviceToHost );
 
@@ -63,7 +63,7 @@ typedef struct float4 {
 } float4;
 #endif
 
-/* 
+/*
  * error - wrapper for perror
  */
 void error(char *msg) {
@@ -75,7 +75,7 @@ void rgbtoyuv(int y, int x, char* yuv, char* rgb)
 {
   int c,cc,R,G,B,Y,U,V;
   int size;
-  
+
   cc=0;
   size = x*PITCH;
   for (c=0;c<size;c+=PITCH)
@@ -111,11 +111,11 @@ rtpStream::rtpStream(int height, int width, char* hostname, int portno) :
     mFrame = 0;
 }
 
-bool rtpStream::Open() 
+bool rtpStream::Open()
 {
     /* socket: create the socket */
     mSockfd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-    if (mSockfd < 0) 
+    if (mSockfd < 0)
     {
         printf("ERROR opening socket");
 	    return error;
@@ -131,17 +131,17 @@ bool rtpStream::Open()
     /* build the server's Internet address */
     bzero((char *) &mServeraddr, sizeof(mServeraddr));
     mServeraddr.sin_family = AF_INET;
-    bcopy((char *)mServer->h_addr, 
+    bcopy((char *)mServer->h_addr,
 	  (char *)&mServeraddr.sin_addr.s_addr, mServer->h_length);
     mServeraddr.sin_port = htons(mPortNo);
 
     /* send the message to the server */
     mServerlen = sizeof(mServeraddr);
-    
+
     return true;
 }
 
-void rtpStream::Close() 
+void rtpStream::Close()
 {
 	close(mSockfd);
 }
@@ -178,14 +178,14 @@ void rtpStream::update_header(header *packet, int line, int last, int32_t timest
   if (last==1)
   {
     packet->rtp.protocol = packet->rtp.protocol | 1 << 23;
-  } 
+  }
 #if 0
   printf("0x%x, 0x%x, 0x%x \n", packet->rtp.protocol, packet->rtp.timestamp, packet->rtp.source);
   printf("0x%x, 0x%x, 0x%x \n", packet->payload.line[0].length, packet->payload.line[0].line_number, packet->payload.line[0].offset);
 #endif
 }
 
-int rtpStream::Transmit(char* rgbframe) 
+int rtpStream::Transmit(char* rgbframe)
 {
     rtp_packet packet;
     char *yuv;
@@ -197,20 +197,20 @@ int rtpStream::Transmit(char* rgbframe)
     char yuvdata[mWidth * mHeight * 2];
 	ConvertRGBtoYUV((void*)rgbframe, (void**)&yuvdata, mWidth, mHeight);
 #endif
-    
+
     sequence_number=0;
-    
+
     /* send a frame */
     {
       struct timeval NTP_value;
       int32_t time = 10000;
-      
+
       for (c=0;c<(mHeight);c++)
       {
         int x,last = 0;
         if (c==mHeight-1) last=1;
         update_header((header*)&packet, c, last, time, RTP_SOURCE);
-        
+
 #if RTP_TO_YUV_ONGPU
         x = c * (mWidth * 2);
         // Copy previously converted line into header
@@ -226,13 +226,13 @@ int rtpStream::Transmit(char* rgbframe)
         endianswap16((uint16_t *)&packet.head.payload, sizeof(payload_header)/2);
 #endif
         n = sendto(mSockfd, (char *)&packet, sizeof(rtp_packet), 0, (const sockaddr*)&mServeraddr, mServerlen);
-        if (n < 0) 
+        if (n < 0)
           fprintf(stderr, "ERROR in sendto");
       }
-      
-      printf("Sent frame %d\n", mFrame++);
+
+//      printf("Sent frame %d\n", mFrame++);
     }
-        
+
     return 0;
 }
 
