@@ -50,11 +50,12 @@
 #include "iterative_motion_estimator.hpp"
 #include "gstCamera.h"
 #include "rtpStream.h"
-
+#include "cudaYUV.h"
 
 #define HEIGHT 480  // Lower resolution stream for RTP
 #define WIDTH 640
 
+#define HEADLESS 1  // Dont put anything out on the local display
 #define GST_MULTICAST 0
 #define GST_SOURCE 1
 #define GST_RTP_SINK 1
@@ -66,7 +67,6 @@
 extern void DumpHex(const void* data, size_t size);
 using namespace nvxio;
 
-#if 1
 class gstSource : public FrameSource
 {
 public:
@@ -75,23 +75,26 @@ public:
     FrameSource::FrameStatus fetch(vx_image image, vx_uint32 timeout = 5 /*milliseconds*/);
     FrameSource::Parameters getConfiguration();
 	bool setConfiguration(const FrameSource::Parameters& params) {};
+	void* getLastGPUBuffer() { return GPUBufferRGB; };
 	void close();
 	static void dumpVxImage(vx_image image);
 private:
     int mHeight;
 	ContextGuard *context;
-	gstCamera* camera;
+	gstCamera *camera;
 	const FrameSource::SourceType  sourceType = VIDEO_SOURCE;
 	const std::string sourceName = "gst-stream";
 	char buffer[HEIGHT * WIDTH * 4];
+	void *GPUBufferRGB;
  };
 
 gstSource::gstSource(nvxio::ContextGuard *con)
 {
+	GPUBufferRGB = 0;
     context = con;
 	std::ostringstream pipeline;
 #if GST_MULTICAST
-	pipeline << "udpsrc address=239.192.1.44 port=5004 caps=\"application/x-rtp, media=(string)video, clock-rate=(int)90000, encoding-name=(string)RAW, sampling=(string)YCbCr-4:2:2, depth=(string)8, width=(string)" << WIDTH << ", height=(string)" << HEIGHT << ", payload=(int)96\" ! ";
+	pipeline << "udpsrc address=239.192.1.43 port=5004 caps=\"application/x-rtp, media=(string)video, clock-rate=(int)90000, encoding-name=(string)RAW, sampling=(string)YCbCr-4:2:2, depth=(string)8, width=(string)" << WIDTH << ", height=(string)" << HEIGHT << ", payload=(int)96\" ! ";
     printf("udpsrc address=239.192.1.44 port=5004 \n");
 #else
 	pipeline << "udpsrc port=5004 caps=\"application/x-rtp, media=(string)video, clock-rate=(int)90000, encoding-name=(string)RAW, sampling=(string)YCbCr-4:2:2, depth=(string)8, width=(string)" << WIDTH << ", height=(string)" << HEIGHT << ", payload=(int)96\" ! ";
@@ -106,13 +109,12 @@ gstSource::gstSource(nvxio::ContextGuard *con)
 
 bool gstSource::open()
 {
-#if 1
 	if( !camera->Open() )
 	{
 		printf("\nmotion-estimation:  failed to open camera for streaming\n");
 		return false;
 	}
-#endif
+
 	return true;
 }
 
@@ -233,11 +235,9 @@ void gstSource::dumpVxImage(vx_image image)
 
 FrameSource::FrameStatus gstSource::fetch(vx_image image, vx_uint32 timeout)
 {
-	void* CPUbuffer = NULL;
-	void* GPUbuffer = NULL;
+	void *GPUbuffer = NULL;
+	void *CPUbuffer = NULL;
 	vx_status status;
-
-//	dumpVxImage(image);
 
 	if( !camera->Capture(&CPUbuffer, &GPUbuffer, 1000) )
 	{
@@ -249,7 +249,7 @@ FrameSource::FrameStatus gstSource::fetch(vx_image image, vx_uint32 timeout)
 	const vx_imagepatch_addressing_t src_addr = {
         WIDTH, HEIGHT, sizeof(vx_uint8)*4, WIDTH * sizeof(vx_uint8)*4, VX_SCALE_UNITY, VX_SCALE_UNITY, 1, 1 };
 
-	if (camera->ConvertYUVtoRGBA(GPUbuffer, (void**)&buffer))
+	if ( camera->ConvertYUVtoRGBA(GPUbuffer, (void**)&buffer, (void**)&GPUBufferRGB) )
 	{
 		vxCopyImagePatch(	image,
 							&rect,
@@ -292,9 +292,6 @@ FrameSource::Parameters gstSource::getConfiguration()
 
 	return param;
 };
-#else
-
-#endif
 
 //
 // Process events
@@ -351,12 +348,11 @@ static bool read(const std::string& configFile,
 
 int main(int argc, char** argv)
 {
+	vx_status status;
 	int deviceCount = 0;
-	cudaGetDeviceCount(&deviceCount);
-	printf("CUDA device count %d\n", deviceCount);
 
 #if GST_SOURCE
-    std::cout << "Abaco Systems modified motion estimation for Gstreamer enabled RTP streams\n";
+    std::cout << "Abaco Systems (ross.newman@abaco.com)\n\t Modified motion estimation for Gstreamer enabled RTP streams.\n\tOriginal demonstration code by Nvidia (see source licence included in headers).\n\n";
 #endif
     try
     {
@@ -429,25 +425,37 @@ int main(int argc, char** argv)
         //
 
 		FrameSource::Parameters srcparams = frameSource->getConfiguration();
+
+#if	GST_MULTICAST
+		rtpStream rtpStreaming(srcparams.frameHeight, srcparams.frameWidth, (char*)"239.192.1.198", 5004);
+#else
 		rtpStream rtpStreaming(srcparams.frameHeight, srcparams.frameWidth, (char*)"127.0.0.1", 5005);
+#endif
+
 		rtpStreaming.Open();
 #endif
 
-        //
-        // Create a Render
-        //
+#if !HEADLESS
+		//
+		// Create a Render
+		//
+		// TODO get rid of rendrer completely not needed for RTP streams.
+		std::unique_ptr<nvxio::Render> render = nvxio::createDefaultRender(context, "Motion Estimation Demo",
+																		   frameConfig.frameWidth, frameConfig.frameHeight);
 
-        std::unique_ptr<nvxio::Render> render = nvxio::createDefaultRender(context, "Motion Estimation Demo",
-                                                                           frameConfig.frameWidth, frameConfig.frameHeight);
+		if (!render)
+		{
+			std::cerr << "Error: Cannot create render!" << std::endl;
+			return nvxio::Application::APP_EXIT_CODE_NO_RENDER;
+		}
 
-        if (!render)
-        {
-            std::cerr << "Error: Cannot create render!" << std::endl;
-            return nvxio::Application::APP_EXIT_CODE_NO_RENDER;
-        }
-
-        EventData eventData;
-        render->setOnKeyboardEventCallback(keyboardEventCallback, &eventData);
+		EventData eventData;
+		render->setOnKeyboardEventCallback(keyboardEventCallback, &eventData);
+#else
+		EventData eventData;
+		eventData.pause = false;
+		eventData.stop =false;
+#endif
 
         //
         // Create OpenVX Image to hold frames from video source
@@ -491,6 +499,7 @@ int main(int argc, char** argv)
         nvx::Timer totalTimer;
         totalTimer.tic();
         double proc_ms = 0;
+
         while (!eventData.stop)
         {
             if (!eventData.pause)
@@ -540,7 +549,7 @@ int main(int argc, char** argv)
 
             double total_ms = totalTimer.toc();
 
-            std::cout << "Display Time : " << total_ms << " ms" << std::endl << std::endl;
+            // std::cout << "Display Time : " << total_ms << " ms" << std::endl << std::endl;
 
             syncTimer->synchronize();
 
@@ -564,33 +573,78 @@ int main(int argc, char** argv)
 			// Some debug
 			// gstSource::dumpVxImage(prevFrame);
 #endif
-            render->putImage(prevFrame);
+			vx_image motion = ime.getMotionField();
 
-            nvxio::Render::MotionFieldStyle mfStyle = {
-                {  0u, 255u, 255u, 255u} // color
-            };
+#if !HEADLESS
+				render->putImage(prevFrame);
 
-            render->putMotionField(ime.getMotionField(), mfStyle);
+				nvxio::Render::MotionFieldStyle mfStyle = {
+					{  0u, 255u, 255u, 255u} // color
+				};
 
-            std::ostringstream msg;
-            msg << std::fixed << std::setprecision(1);
+				render->putMotionField(motion, mfStyle);
 
-            msg << "Resolution: " << frameConfig.frameWidth << 'x' << frameConfig.frameHeight << std::endl;
-            msg << "Algorithm: " << proc_ms << " ms / " << 1000.0 / proc_ms << " FPS" << std::endl;
-            msg << "Display: " << total_ms  << " ms / " << 1000.0 / total_ms << " FPS" << std::endl;
-            msg << "Space - pause/resume" << std::endl;
-            msg << "Esc - close the sample";
+				std::ostringstream msg;
+				msg << std::fixed << std::setprecision(1);
 
-            nvxio::Render::TextBoxStyle textStyle = {
-                {255u, 255u, 255u, 255u}, // color
-                {0u,   0u,   0u, 127u}, // bgcolor
-                {10u, 10u} // origin
-            };
+				msg << "Resolution: " << frameConfig.frameWidth << 'x' << frameConfig.frameHeight << std::endl;
+				msg << "Algorithm: " << proc_ms << " ms / " << 1000.0 / proc_ms << " FPS" << std::endl;
+				msg << "Display: " << total_ms  << " ms / " << 1000.0 / total_ms << " FPS" << std::endl;
+				msg << "Space - pause/resume" << std::endl;
+				msg << "Esc - close the sample";
 
-            render->putTextViewport(msg.str(), textStyle);
+				nvxio::Render::TextBoxStyle textStyle = {
+					{255u, 255u, 255u, 255u}, // color
+					{0u,   0u,   0u, 127u}, // bgcolor
+					{10u, 10u} // origin
+				};
 
+				render->putTextViewport(msg.str(), textStyle);
+#endif
 #if GST_RTP_SINK
 			{
+				vx_uint32 mb_width, mb_height;
+				mb_width = frameConfig.frameWidth/2;
+				mb_height = frameConfig.frameHeight/2;
+				// Extract motion fields
+				char* motion_buffer[mb_width * mb_height * sizeof(vx_float32)*2];
+				const vx_rectangle_t motionrect = { 0, 0, mb_width, mb_height};
+				const vx_imagepatch_addressing_t src_addr = {
+					mb_width,
+					mb_height,
+					sizeof(vx_float32)*2,
+					(int)(mb_width * sizeof(vx_float32)*2),
+					VX_SCALE_UNITY,
+					VX_SCALE_UNITY,
+					1,
+					1 };
+
+				status = vxCopyImagePatch(motion,
+									&motionrect,
+									0,
+									&src_addr,
+									motion_buffer,
+									VX_READ_ONLY,
+									VX_MEMORY_TYPE_HOST
+				);
+				if (status != VX_SUCCESS)
+				{
+					printf("[MOTION] vxCopyImagePatch motion data failed!\n");
+					return nvxio::Application::APP_EXIT_CODE_ERROR;
+				}
+
+#if GST_SOURCE
+				// Transmit the RTP video our over Ethernet
+				// RGB data is already on the GPU
+				void *gpuBuffer = frameSource->getLastGPUBuffer();
+
+				cudaMotionFields((uint8_t*)gpuBuffer, (vx_float32*)motion_buffer, frameConfig.frameWidth, frameConfig.frameHeight);
+				rtpStreaming.Transmit((char*)gpuBuffer, true);
+			}
+#else
+				//
+				// Transmit the RTP video our over Ethernet
+				//
 				int result;
 
 				char roi[frameConfig.frameWidth * frameConfig.frameHeight * 4];
@@ -610,10 +664,12 @@ int main(int argc, char** argv)
 					1,
 					1 };
 
-				vx_image motion = ime.getMotionField();
-
 				{
-					// Extract image
+					//
+					// Extract raw RGBX image from prevFrame. Need to do
+					// this for video streaming from a file as we dont
+					// have the video on the GPU already.
+					//
 					vxCopyImagePatch(	prevFrame,
 										&rect,
 										0,
@@ -623,74 +679,17 @@ int main(int argc, char** argv)
 										VX_MEMORY_TYPE_HOST
 					);
 				}
-
-				{
-					char* motion_buffer[frameConfig.frameWidth+1 / 2 * frameConfig.frameHeight+1 / 2 * sizeof(vx_float32)*2];
-					const vx_rectangle_t rect = { 0, 0, frameConfig.frameWidth+1 / 2, frameConfig.frameHeight+1 / 2};
-					const vx_imagepatch_addressing_t src_addr = {
-						frameConfig.frameWidth+1 / 2,
-						frameConfig.frameHeight+1 / 2,
-
-						sizeof(vx_float32)*2,
-						frameConfig.frameWidth+1 / 2 * sizeof(vx_float32)*2,
-						VX_SCALE_UNITY,
-						VX_SCALE_UNITY,
-						1,
-						1 };
-
-					// Extract motion fields
-					vxCopyImagePatch(	motion,
-										&rect,
-										0,
-										&src_addr,
-										motion_buffer,
-										VX_READ_ONLY,
-										VX_MEMORY_TYPE_HOST
-					);
-					vx_float32 *motion2u32 = 0;
-					motion2u32 = (vx_float32 *)motion_buffer;
-
-					// More debug
-					printf("NVX_DF_IMAGE_2F32 %d\n", sizeof(vx_float32));
-					gstSource::dumpVxImage(motion);
-					DumpHex(motion_buffer, 112);
-/* Produces the output (example for horizontal scrolling bars (default gstreamer test pattern) */
-NVX_DF_IMAGE_2F32 4
->>> vxQueary :
-	width = 320
-	height = 240
-	planes= 1
-	size = 614400
-	format = ???
-	space = VX_COLOR_SPACE_NONE
-	range = VX_CHANNEL_RANGE_FULL
-	memory = VX_MEMORY_TYPE_NONE
-80 EB 80 EB 80 EB 80 EB  80 EB 80 EB 80 EB 80 EB  |  ................
-80 EB 80 EB 80 EB 80 EB  80 EB 80 EB 80 EB 80 EB  |  ................
-80 EB 80 EB 92 D1 88 31  D6 52 91 52 D6 52 91 52  |  .......1.R.R.R.R
-D6 52 91 52 D6 52 91 52  D6 52 91 52 D6 52 91 52  |  .R.R.R.R.R.R.R.R
-D6 52 91 52 D6 52 91 52  D6 52 91 52 D6 52 91 52  |  .R.R.R.R.R.R.R.R
-D6 52 91 52 D6 52 91 52  D6 52 91 52 D6 52 91 52  |  .R.R.R.R.R.R.R.R
-D6 52 91 52 D6 52 91 52  D6 52 91 52 D6 52 91 52  |  .R.R.R.R.R.R.R.R
-*/
-					int c=0;
-					for (int p=0; p<20; p++)
-					{
-//						printf("(%d, %lf, %lf)  ", p, motion2u32[c], motion2u32[c+1]);
-						c+=2;
-						if (p % 5 == 0) printf("\n ");
-					}
-				}
-
-				rtpStreaming.Transmit(roi);
+				rtpStreaming.Transmit(roi, false);
 			}
 #endif
+#endif
 
+#if !HEADLESS
             if (!render->flush())
             {
                 eventData.stop = true;
             }
-
+#endif
             if (!eventData.pause)
             {
                 vxAgeDelay(frame_delay);

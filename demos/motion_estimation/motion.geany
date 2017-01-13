@@ -1,0 +1,66 @@
+[editor]
+line_wrapping=false
+line_break_column=80
+auto_continue_multiline=true
+
+[file_prefs]
+final_new_line=true
+ensure_convert_new_lines=false
+strip_trailing_spaces=true
+replace_tabs=false
+
+[indentation]
+indent_width=4
+indent_type=1
+indent_hard_tab_width=8
+detect_indent=false
+detect_indent_width=false
+indent_mode=2
+
+[project]
+name=Motion Estimation
+base_path=.
+description=
+file_patterns=
+
+[long line marker]
+long_line_behaviour=1
+long_line_column=72
+
+[files]
+current_page=14
+FILE_NAME_0=0;C;0;EUTF-8;1;1;0;%2Fhome%2Fubuntu%2Fmotion-estimation%2Fdemos%2Fmotion_estimation%2Fcamera.h;0;4
+FILE_NAME_1=0;CMake;0;EUTF-8;1;1;0;%2Fhome%2Fubuntu%2Fmotion-estimation%2Fdemos%2Fmotion_estimation%2FCMakeLists.txt;0;4
+FILE_NAME_2=0;C;0;EUTF-8;1;1;0;%2Fhome%2Fubuntu%2Fmotion-estimation%2Fdemos%2Fmotion_estimation%2Fconfig.h;0;4
+FILE_NAME_3=0;C;0;EUTF-8;1;1;0;%2Fhome%2Fubuntu%2Fmotion-estimation%2Fdemos%2Fmotion_estimation%2FcudaMappedMemory.h;0;4
+FILE_NAME_4=0;C;0;EUTF-8;1;1;0;%2Fhome%2Fubuntu%2Fmotion-estimation%2Fdemos%2Fmotion_estimation%2FcudaUtility.h;0;4
+FILE_NAME_5=0;C;0;EUTF-8;1;1;0;%2Fhome%2Fubuntu%2Fmotion-estimation%2Fdemos%2Fmotion_estimation%2FcudaYUV.h;0;4
+FILE_NAME_6=17123;CUDA;0;EUTF-8;1;1;0;%2Fhome%2Fubuntu%2Fmotion-estimation%2Fdemos%2Fmotion_estimation%2FcudaYUV-NV12.cu;0;4
+FILE_NAME_7=0;C;0;EUTF-8;1;1;0;%2Fhome%2Fubuntu%2Fmotion-estimation%2Fdemos%2Fmotion_estimation%2Fdebug.h;0;4
+FILE_NAME_8=0;C++;0;EUTF-8;1;1;0;%2Fhome%2Fubuntu%2Fmotion-estimation%2Fdemos%2Fmotion_estimation%2FgstCamera.cpp;0;4
+FILE_NAME_9=0;C;0;EUTF-8;1;1;0;%2Fhome%2Fubuntu%2Fmotion-estimation%2Fdemos%2Fmotion_estimation%2FgstCamera.h;0;4
+FILE_NAME_10=0;C++;0;EUTF-8;1;1;0;%2Fhome%2Fubuntu%2Fmotion-estimation%2Fdemos%2Fmotion_estimation%2FgstUtility.cpp;0;4
+FILE_NAME_11=0;C;0;EUTF-8;1;1;0;%2Fhome%2Fubuntu%2Fmotion-estimation%2Fdemos%2Fmotion_estimation%2FgstUtility.h;0;4
+FILE_NAME_12=0;C++;0;EUTF-8;1;1;0;%2Fhome%2Fubuntu%2Fmotion-estimation%2Fdemos%2Fmotion_estimation%2Fiterative_motion_estimator.cpp;0;4
+FILE_NAME_13=0;C++;0;EUTF-8;1;1;0;%2Fhome%2Fubuntu%2Fmotion-estimation%2Fdemos%2Fmotion_estimation%2Fiterative_motion_estimator.hpp;0;4
+FILE_NAME_14=17580;C++;0;EUTF-8;1;1;0;%2Fhome%2Fubuntu%2Fmotion-estimation%2Fdemos%2Fmotion_estimation%2Fmain_motion_estimation.cpp;0;4
+FILE_NAME_15=0;Make;0;EUTF-8;1;1;0;%2Fhome%2Fubuntu%2Fmotion-estimation%2Fdemos%2Fmotion_estimation%2FMakefile;0;4
+FILE_NAME_16=392;C++;0;EUTF-8;1;1;0;%2Fhome%2Fubuntu%2Fmotion-estimation%2Fdemos%2Fmotion_estimation%2FrtpStream.cpp;0;4
+FILE_NAME_17=0;C;0;EUTF-8;1;1;0;%2Fhome%2Fubuntu%2Fmotion-estimation%2Fdemos%2Fmotion_estimation%2FrtpStream.h;0;4
+FILE_NAME_18=0;C++;0;EUTF-8;1;1;0;%2Fhome%2Fubuntu%2Flibvisionworks-nvxio-1.5.3.71n%2Fnvxio%2Fsrc%2FRender%2FCUDA-OpenGL%2FOpenGLBasicRenders.cpp;0;4
+FILE_NAME_19=0;C++;0;EUTF-8;1;1;0;%2Fhome%2Fubuntu%2Flibvisionworks-nvxio-1.5.3.71n%2Fnvxio%2Fsrc%2FRender%2FCUDA-OpenGL%2FOpenGLRenderImpl.cpp;0;4
+FILE_NAME_20=0;C++;0;EUTF-8;1;1;0;%2Fhome%2Fubuntu%2Flibvisionworks-nvxio-1.5.3.71n%2Fnvxio%2Fsrc%2FRender%2FWrappers%2FRenderNVXWrapper.cpp;0;4
+
+[build-menu]
+EX_00_LB=_Execute
+EX_00_CM=/home/ubuntu/motion-estimation/build/bin/aarch64/linux/release/motion-estimation
+EX_00_WD=/home/ubuntu/motion-estimation/build/bin/aarch64/linux/release/
+NF_00_LB=_Make
+NF_00_CM=make
+NF_00_WD=%d/../../build/
+NF_01_LB=Make clean
+NF_01_CM=make clean
+NF_01_WD=%d/../../build/
+NF_02_LB=Make _Object
+NF_02_CM=make %e.o
+NF_02_WD=

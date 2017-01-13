@@ -12,38 +12,44 @@ void * mRGBA;
 void * mYUV;
 // ConvertRGBA
 
-bool ConvertRGBtoYUV( void* input, void** output, size_t width, size_t height )
+bool ConvertRGBtoYUV( void* input, bool gpuAddr, void** output, size_t width, size_t height )
 {
 	if( !input || !output )
 		return false;
 
-	if( !mRGBA )
+	if (gpuAddr)
 	{
-		if( CUDA_FAILED(cudaMalloc(&mRGBA, (width * height) * 4)) )
-		{
-			printf(LOG_CUDA "rtpStream -- failed to allocate memory for %ux%u RGBA texture\n", width, height);
-			return false;
-		}
+		// Data is already on the GPU so no need to copy
+		mRGBA = input;
 	}
+	else
+	{
+		if( !mRGBA )
+		{
+			if( CUDA_FAILED(cudaMalloc(&mRGBA, (width * height) * 4)) )
+			{
+				printf(LOG_CUDA "rtpStream -- failed to allocate memory for %ux%u RGBA texture\n", (unsigned int)width, (unsigned int)height);
+				return false;
+			}
+		}
+		// HOST buffer so copy the RGB data to the GPU
+		cudaMemcpy( mRGBA, input, (width * height) * PITCH, cudaMemcpyHostToDevice );
+	}
+
 	if( !mYUV )
 	{
 		if( CUDA_FAILED(cudaMalloc(&mYUV, (width * height) * 2)) )
 		{
-			printf(LOG_CUDA "rtpStream -- failed to allocate memory for %ux%u YUV texture\n", width, height);
+			printf(LOG_CUDA "rtpStream -- failed to allocate memory for %ux%u YUV texture\n", (unsigned int)width, (unsigned int)height);
 			return false;
 		}
 	}
 
 	// RTP is YUV
 
-	cudaMemcpy( mRGBA, input, (width * height) * PITCH, cudaMemcpyHostToDevice );
-#if 0
-	// Push the RGB data over to the GPU
-	if( CUDA_FAILED(cudaRGBToYUV((uint8_t*)mRGBA, (uint8_t*)mYUV, (size_t)width, (size_t)height)) )
-#else
 	// Push the RGB data over to the GPU
 	if( CUDA_FAILED(cudaRGBAToYUV((uint8_t*)mRGBA, (uint8_t*)mYUV, (size_t)width, (size_t)height)) )
-#endif
+
 	{
 		return false;
 	}
@@ -185,7 +191,7 @@ void rtpStream::update_header(header *packet, int line, int last, int32_t timest
 #endif
 }
 
-int rtpStream::Transmit(char* rgbframe)
+int rtpStream::Transmit(char* rgbframe, bool gpuAddr)
 {
     rtp_packet packet;
     char *yuv;
@@ -195,7 +201,7 @@ int rtpStream::Transmit(char* rgbframe)
 #if RTP_TO_YUV_ONGPU
     // Convert the whole frame into YUV
     char yuvdata[mWidth * mHeight * 2];
-	ConvertRGBtoYUV((void*)rgbframe, (void**)&yuvdata, mWidth, mHeight);
+	ConvertRGBtoYUV((void*)rgbframe, gpuAddr, (void**)&yuvdata, mWidth, mHeight);
 #endif
 
     sequence_number=0;
@@ -230,7 +236,7 @@ int rtpStream::Transmit(char* rgbframe)
           fprintf(stderr, "ERROR in sendto");
       }
 
-//      printf("Sent frame %d\n", mFrame++);
+     // printf("Sent frame %d\n", mFrame++);
     }
 
     return 0;

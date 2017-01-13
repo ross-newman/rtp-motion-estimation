@@ -21,7 +21,7 @@ gst-launch-1.0 videotestsrc num_buffers ! video/x-raw, format=UYVY, framerate=25
 gst-launch-1.0 udpsrc port=5004 caps="application/x-rtp, media=(string)video, clock-rate=(int)90000, encoding-name=(string)RAW, sampling=(string)YCbCr-4:2:2, depth=(string)8, width=(string)480, height=(string)480, payload=(int)96" ! queue ! rtpvrawdepay ! queue ! xvimagesink sync=false
 
 
-Use his program to stream data to the udpsc example above on the tegra X1 
+Use his program to stream data to the udpsc example above on the tegra X1
 
 */
 
@@ -36,7 +36,7 @@ Use his program to stream data to the udpsc example above on the tegra X1
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
-#include <netdb.h> 
+#include <netdb.h>
 #include "camera.h"
 
 
@@ -84,7 +84,7 @@ typedef struct  __attribute__((__packed__))
   payload_header payload;
 } header;
 
-typedef struct 
+typedef struct
 {
   header head;
   char data[MAX_BUFSIZE];
@@ -92,13 +92,13 @@ typedef struct
 
 
 /**
- * rtpstream RGB data 
+ * rtpstream RGB data
  */
 class rtpStream : public camera
 {
 public:
 	rtpStream(int height, int width, char* hosstname, int port);
-	int Transmit(char* rgbframe);
+	int Transmit(char* rgbframe, bool gpuAddr);
     bool Open();
 	void Close();
     bool Capture( void** cpu, void** cuda, unsigned long timeout=ULONG_MAX ) { return false; };
@@ -114,7 +114,7 @@ private:
 #if ARM
 	void endianswap32(uint32_t *data, int length);
 	void endianswap16(uint16_t *data, int length);
-#endif	
+#endif
 };
 
 
