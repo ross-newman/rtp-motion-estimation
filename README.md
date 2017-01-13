@@ -56,6 +56,10 @@ There are several test scripts provided in the root directory.
 * [testRtp05-webcam.sh] - Use a webcam as input and RTP output 
 * [testRtp06-file.sh] - Use the test file 960 x 540 as input and RTP output 
 
+Below is the example gstreamer pipline of a moving ball that can be used to test the algorithm (Shown Below).
+
+![Test video source](abaco/test-screenshot01.png)
+
 ## Links
 * [Abaco Systems](http://abaco.com)
 * [eLinux TX1](http://elinux.org/Jetson_TX1)
