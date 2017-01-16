@@ -32,6 +32,7 @@
 #include <iomanip>
 #include <string>
 #include <memory>
+#include <getopt.h>
 
 #include <NVX/nvx.h>
 #include <NVX/nvxcu.h>
@@ -59,6 +60,7 @@
 #define GST_MULTICAST 0
 #define GST_SOURCE 1
 #define GST_RTP_SINK 1
+#define TIMEING_DEBUG 0
 
 #if GST_RTP_SINK
 #include "rtpStream.h"
@@ -100,7 +102,8 @@ gstSource::gstSource(nvxio::ContextGuard *con)
 	pipeline << "udpsrc port=5004 caps=\"application/x-rtp, media=(string)video, clock-rate=(int)90000, encoding-name=(string)RAW, sampling=(string)YCbCr-4:2:2, depth=(string)8, width=(string)" << WIDTH << ", height=(string)" << HEIGHT << ", payload=(int)96\" ! ";
     printf("udpsrc port=5004 \n");
 #endif
-	pipeline << "queue ! rtpvrawdepay ! queue ! ";
+	pipeline << "queue  ! ";
+	pipeline << "rtpvrawdepay  ! ";
 	pipeline << "appsink name=mysink";
 
 	static  std::string pip = pipeline.str();
@@ -233,18 +236,39 @@ void gstSource::dumpVxImage(vx_image image)
 	printf("\n");
 }
 
+class mytimer
+{
+public:
+	void tic(void) {timer.tic(); }
+	void toc(char* msg) {
+		ms = timer.toc();
+#if TIMEING_DEBUG
+		printf("[TIMER] %s %f ms\n", msg, ms );
+#endif
+	}
+private:
+	double ms;
+	nvx::Timer timer;
+};
+
 FrameSource::FrameStatus gstSource::fetch(vx_image image, vx_uint32 timeout)
 {
 	void *GPUbuffer = NULL;
 	void *CPUbuffer = NULL;
 	vx_status status;
 
+	mytimer totalTimer;
+
+	totalTimer.tic();
+
 	if( !camera->Capture(&CPUbuffer, &GPUbuffer, 1000) )
 	{
 		printf("\nmotion-estimation:  failed to capture frame\n");
 		return CLOSED;
 	}
+	totalTimer.toc((char*)"camera->Capture Time : " );
 
+	totalTimer.tic();
 	const vx_rectangle_t rect = { 0, 0, WIDTH, HEIGHT};
 	const vx_imagepatch_addressing_t src_addr = {
         WIDTH, HEIGHT, sizeof(vx_uint8)*4, WIDTH * sizeof(vx_uint8)*4, VX_SCALE_UNITY, VX_SCALE_UNITY, 1, 1 };
@@ -265,6 +289,7 @@ FrameSource::FrameStatus gstSource::fetch(vx_image image, vx_uint32 timeout)
 		printf("\nmotion-estimation: failed CUDA YUV to RGB\n");
 		return CLOSED;
 	}
+	totalTimer.toc((char*)"camera->ConvertYUVtoRGBA Time : ");
 
 	status = vxGetStatus((vx_reference)image);
 	if (status == VX_SUCCESS)
@@ -348,11 +373,13 @@ static bool read(const std::string& configFile,
 
 int main(int argc, char** argv)
 {
+	mytimer debugTimer;
+	double rtpproc_ms = 0;
 	vx_status status;
 	int deviceCount = 0;
 
 #if GST_SOURCE
-    std::cout << "Abaco Systems (ross.newman@abaco.com)\n\t Modified motion estimation for Gstreamer enabled RTP streams.\n\tOriginal demonstration code by Nvidia (see source licence included in headers).\n\n";
+    std::cout << "Abaco Systems (ross.newman@abaco.com)\n\tModified motion estimation for Gstreamer enabled RTP streams.\n\tOriginal demonstration code by Nvidia (see source licence included in headers).\n\n";
 #endif
     try
     {
@@ -426,13 +453,15 @@ int main(int argc, char** argv)
 
 		FrameSource::Parameters srcparams = frameSource->getConfiguration();
 
-#if	GST_MULTICAST
-		rtpStream rtpStreaming(srcparams.frameHeight, srcparams.frameWidth, (char*)"239.192.1.198", 5004);
-#else
-		rtpStream rtpStreaming(srcparams.frameHeight, srcparams.frameWidth, (char*)"127.0.0.1", 5005);
-#endif
+		rtpStream rtpStreaming(srcparams.frameHeight, srcparams.frameWidth);
 
+#if	GST_MULTICAST
+		rtpStreaming.rtpStreamOut((char*)"239.192.1.198", 5004);
+#else
+		rtpStreaming.rtpStreamOut((char*)"127.0.0.1", 5005);
+#endif
 		rtpStreaming.Open();
+
 #endif
 
 #if !HEADLESS
@@ -492,11 +521,12 @@ int main(int argc, char** argv)
         //
         // Main loop
         //
-
+#if !GST_SOURCE
         std::unique_ptr<nvxio::SyncTimer> syncTimer = nvxio::createSyncTimer();
         syncTimer->arm(1. / app.getFPSLimit());
+#endif
 
-        nvx::Timer totalTimer;
+        mytimer totalTimer;
         totalTimer.tic();
         double proc_ms = 0;
 
@@ -507,7 +537,9 @@ int main(int argc, char** argv)
                 //
                 // Grab next frame
                 //
+                debugTimer.tic();
                 frameStatus = frameSource->fetch(currFrame);
+				debugTimer.toc((char*)"frameSource->fetch Time : ");
 
                 if (frameStatus == nvxio::FrameSource::TIMEOUT)
                     continue;
@@ -547,13 +579,10 @@ int main(int argc, char** argv)
                 proc_ms = procTimer.toc();
             }
 
-            double total_ms = totalTimer.toc();
-
-            // std::cout << "Display Time : " << total_ms << " ms" << std::endl << std::endl;
-
+#if !GST_SOURCE
             syncTimer->synchronize();
-
-            total_ms = totalTimer.toc();
+#endif
+            totalTimer.toc((char*)"Display Time : ");
 
             totalTimer.tic();
 
@@ -603,10 +632,16 @@ int main(int argc, char** argv)
 #endif
 #if GST_RTP_SINK
 			{
+				debugTimer.tic();
+
+				//
+				// Extract motion fields
+				//
+
 				vx_uint32 mb_width, mb_height;
 				mb_width = frameConfig.frameWidth/2;
 				mb_height = frameConfig.frameHeight/2;
-				// Extract motion fields
+
 				char* motion_buffer[mb_width * mb_height * sizeof(vx_float32)*2];
 				const vx_rectangle_t motionrect = { 0, 0, mb_width, mb_height};
 				const vx_imagepatch_addressing_t src_addr = {
@@ -639,7 +674,11 @@ int main(int argc, char** argv)
 				void *gpuBuffer = frameSource->getLastGPUBuffer();
 
 				cudaMotionFields((uint8_t*)gpuBuffer, (vx_float32*)motion_buffer, frameConfig.frameWidth, frameConfig.frameHeight);
+				debugTimer.toc((char*)"cudaMotionFields Time : " );
+
+				debugTimer.tic();
 				rtpStreaming.Transmit((char*)gpuBuffer, true);
+				debugTimer.toc((char*)"rtpStreaming.Transmit Time : " );
 			}
 #else
 				//
@@ -652,12 +691,12 @@ int main(int argc, char** argv)
 //printf(">>>>>>>>>>>> %d %d\n", frameConfig.frameWidth, frameConfig.frameHeight);
 
 				const vx_rectangle_t rect = { 0, 0, frameConfig.frameWidth, frameConfig.frameHeight};
-				const vx_imagepatch_addressing_t src_addr = {
+				const vx_imagepatch_addressing_t image_src_addr = {
 					frameConfig.frameWidth,
 					frameConfig.frameHeight,
 
 					sizeof(vx_uint8)*4,
-					frameConfig.frameWidth * sizeof(vx_uint8)*4,
+					(int)(frameConfig.frameWidth * sizeof(vx_uint8)*4),
 
 					VX_SCALE_UNITY,
 					VX_SCALE_UNITY,
@@ -673,7 +712,7 @@ int main(int argc, char** argv)
 					vxCopyImagePatch(	prevFrame,
 										&rect,
 										0,
-										&src_addr,
+										&image_src_addr,
 										roi,
 										VX_READ_ONLY,
 										VX_MEMORY_TYPE_HOST
@@ -690,10 +729,12 @@ int main(int argc, char** argv)
                 eventData.stop = true;
             }
 #endif
+#if !GST_SOURCE
             if (!eventData.pause)
             {
                 vxAgeDelay(frame_delay);
             }
+#endif
         }
 
         //

@@ -1,3 +1,4 @@
+#include <pthread.h>
 #include "config.h"
 #include "rtpStream.h"
 
@@ -108,13 +109,25 @@ void rgbtoyuv(int y, int x, char* yuv, char* rgb)
   }
 }
 
-/* Broadcast the stream to port 5004 */
-rtpStream::rtpStream(int height, int width, char* hostname, int portno) :
+rtpStream::rtpStream(int height, int width) :
     camera(height, width)
 {
-	strcpy(mHostname, hostname);
-    mPortNo = portno;
     mFrame = 0;
+    pthread_mutex_init(&mutex, NULL);
+}
+
+/* Broadcast the stream to port 5004 */
+void rtpStream::rtpStreamIn( char* hostname, int portno)
+{
+	mPortNoIn = portno;
+	strcpy(mHostnameIn, hostname);
+}
+
+void rtpStream::rtpStreamOut(char* hostname, int portno)
+{
+	// TODO : Implement input
+	mPortNoOut = portno;
+	strcpy(mHostnameOut, hostname);
 }
 
 bool rtpStream::Open()
@@ -128,9 +141,9 @@ bool rtpStream::Open()
 	}
 
     /* gethostbyname: get the server's DNS entry */
-    mServer = gethostbyname(mHostname);
+    mServer = gethostbyname(mHostnameOut);
     if (mServer == NULL) {
-        fprintf(stderr,"ERROR, no such host as %s\n", mHostname);
+        fprintf(stderr,"ERROR, no such host as %s\n", mHostnameOut);
         exit(0);
     }
 
@@ -139,7 +152,7 @@ bool rtpStream::Open()
     mServeraddr.sin_family = AF_INET;
     bcopy((char *)mServer->h_addr,
 	  (char *)&mServeraddr.sin_addr.s_addr, mServer->h_length);
-    mServeraddr.sin_port = htons(mPortNo);
+    mServeraddr.sin_port = htons(mPortNoOut);
 
     /* send the message to the server */
     mServerlen = sizeof(mServeraddr);
@@ -153,14 +166,14 @@ void rtpStream::Close()
 }
 
 #if ARM
-void rtpStream::endianswap32(uint32_t *data, int length)
+void endianswap32(uint32_t *data, int length)
 {
   int c = 0;
   for (c=0;c<length;c++)
     data[c] = __bswap_32 (data[c]);
 }
 
-void rtpStream::endianswap16(uint16_t *data, int length)
+void endianswap16(uint16_t *data, int length)
 {
   int c = 0;
   for (c=0;c<length;c++)
@@ -191,53 +204,73 @@ void rtpStream::update_header(header *packet, int line, int last, int32_t timest
 #endif
 }
 
-int rtpStream::Transmit(char* rgbframe, bool gpuAddr)
+void *TransmitThread(void* data)
 {
     rtp_packet packet;
+	tx_data *arg;
     char *yuv;
     int c=0;
     int n=0;
 
+	arg = (tx_data *)data;
+
 #if RTP_TO_YUV_ONGPU
     // Convert the whole frame into YUV
-    char yuvdata[mWidth * mHeight * 2];
-	ConvertRGBtoYUV((void*)rgbframe, gpuAddr, (void**)&yuvdata, mWidth, mHeight);
+    char yuvdata[arg->width * arg->height * 2];
+	ConvertRGBtoYUV((void*)arg->rgbframe, arg->gpuAddr, (void**)&yuvdata, arg->width, arg->height);
 #endif
 
     sequence_number=0;
 
     /* send a frame */
+    pthread_mutex_lock(&arg->stream->mutex);
     {
       struct timeval NTP_value;
       int32_t time = 10000;
 
-      for (c=0;c<(mHeight);c++)
+      for (c=0;c<(arg->height);c++)
       {
         int x,last = 0;
-        if (c==mHeight-1) last=1;
-        update_header((header*)&packet, c, last, time, RTP_SOURCE);
+        if (c==arg->height-1) last=1;
+        arg->stream->update_header((header*)&packet, c, last, time, RTP_SOURCE);
 
 #if RTP_TO_YUV_ONGPU
-        x = c * (mWidth * 2);
+        x = c * (arg->width * 2);
         // Copy previously converted line into header
-		memcpy(packet.data, (void*)&yuvdata[x], mWidth * 2);
+		memcpy(packet.data, (void*)&yuvdata[x], arg->width * 2);
 #else
-        x = c * (mWidth * PITCH);
+        x = c * (arg->width * PITCH);
         // CPU conversion, might as well do one line at a time
-        rgbtoyuv(mHeight, mWidth, packet.data, (char*)&rgbframe[x]);
+        rgbtoyuv(mHeight, mWidth, packet.data, (char*)&args.rgbframe[x]);
 #endif
 
 #if ARM
         endianswap32((uint32_t *)&packet, sizeof(rtp_header)/4);
         endianswap16((uint16_t *)&packet.head.payload, sizeof(payload_header)/2);
 #endif
-        n = sendto(mSockfd, (char *)&packet, sizeof(rtp_packet), 0, (const sockaddr*)&mServeraddr, mServerlen);
+        n = sendto(arg->stream->mSockfd, (char *)&packet, sizeof(rtp_packet), 0, (const sockaddr*)&arg->stream->mServeraddr, arg->stream->mServerlen);
         if (n < 0)
           fprintf(stderr, "ERROR in sendto");
       }
 
-     // printf("Sent frame %d\n", mFrame++);
+      // printf("Sent frame %d\n", mFrame++);
     }
+    pthread_mutex_unlock(&arg->stream->mutex);
+}
+
+// Arguments sent to thread
+static tx_data args;
+int rtpStream::Transmit(char* rgbframe, bool gpuAddr)
+{
+	pthread_t tx;
+	args.rgbframe = rgbframe;
+	args.gpuAddr = gpuAddr;
+	args.width = mWidth;
+	args.height = mHeight;
+	args.stream = this;
+
+	// Start a thread so we can start capturing the next frame while transmitting the data
+	pthread_create(&tx, NULL, TransmitThread, &args );
 
     return 0;
 }

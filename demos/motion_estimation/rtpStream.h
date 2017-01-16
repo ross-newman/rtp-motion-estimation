@@ -97,25 +97,41 @@ typedef struct
 class rtpStream : public camera
 {
 public:
-	rtpStream(int height, int width, char* hosstname, int port);
+    rtpStream(int height, int width);
+	void rtpStreamOut(char* hosstname, int port);
+	void rtpStreamIn(char* hosstname, int port);
 	int Transmit(char* rgbframe, bool gpuAddr);
     bool Open();
 	void Close();
     bool Capture( void** cpu, void** cuda, unsigned long timeout=ULONG_MAX ) { return false; };
-private:
-    int mSockfd;
-    int mPortNo;
-    struct sockaddr_in mServeraddr;
-    struct hostent *mServer;
-    int mServerlen;
-    unsigned int mFrame;
-    char mHostname[100];
 	void update_header(header *packet, int line, int last, int32_t timestamp, int32_t source);
+    int mSockfd;
+    struct sockaddr_in mServeraddr;
+    int mServerlen;
+    pthread_mutex_t mutex;
+private:
+    struct hostent *mServer;
+    unsigned int mFrame;
+	// Ingress port
+    char mHostnameIn[100];
+    int mPortNoIn;
+	// Egress port
+    char mHostnameOut[100];
+    int mPortNoOut;
+};
+
+typedef struct
+{
+	char* rgbframe;
+	bool gpuAddr;
+	uint32_t width;
+	uint32_t height;
+	rtpStream *stream;
+} tx_data;
+
 #if ARM
 	void endianswap32(uint32_t *data, int length);
 	void endianswap16(uint16_t *data, int length);
 #endif
-};
-
 
 #endif
