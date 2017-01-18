@@ -47,7 +47,7 @@ make
 ```
 For jetson 64bit builds the architecte will be aarch64.
 
-## 4. Modifying
+#### 4. Modifying
 
 Some macros control how the demo can be run and there are located in [`config.h`](demos/config.h)
 * HEADLESS 0 - Dont put anything out on the local display. Usefull for headless operation.
