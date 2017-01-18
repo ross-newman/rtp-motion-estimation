@@ -59,7 +59,7 @@ Some macros control how the demo can be run and there are located in [`config.h`
 
 ## Test
 There are several test scripts provided in the root directory.
-* ['testFile01.sh'](testFile01.sh) - Catch RTP output using Gstreamer
+* [testFile01.sh](testFile01.sh) - Catch RTP output using Gstreamer
 * [testRtp01.sh](testRtp01.sh) - Catch RTP output using Gstreamer
 * [testRtp02.sh](testRtp02.sh) - Simple gst-launch-1.0 -v videotestsrc test with motion  (1280 x 720)
 * [testRtp03.sh](testRtp03.sh) - Simple gst-launch-1.0 -v videotestsrc test without motion  (1280 x 720)
