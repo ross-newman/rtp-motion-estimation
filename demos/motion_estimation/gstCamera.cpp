@@ -62,7 +62,6 @@ gstCamera::gstCamera(int height, int width) :
 	mAppSink    = NULL;
 	mBus        = NULL;
 	mPipeline   = NULL;
-	mRGBA       = NULL;
 
 	mDepth     = 12;
 	mSize      = (mWidth * mHeight * mDepth) / 8;
@@ -86,37 +85,6 @@ gstCamera::gstCamera(int height, int width) :
 gstCamera::~gstCamera()
 {
 	frame = 0;
-}
-
-
-// ConvertRGBA
-
-bool gstCamera::ConvertYUVtoRGBA( void* input, void** outputCPU, void** outputGPU )
-{
-	if( !input || !outputCPU )
-		return false;
-
-	if( !mRGBA )
-	{
-		if( CUDA_FAILED(cudaMalloc(&mRGBA, (mWidth * mHeight) * 4)) )
-		{
-			printf(LOG_CUDA "gstCamera -- failed to allocate memory for %ux%u RGBA texture\n", mWidth, mHeight);
-			return false;
-		}
-	}
-
-	// RTP is YUV
-	if( CUDA_FAILED(cudaYUVToRGBA((uint8_t*)input, (uint8_t*)mRGBA, (size_t)mWidth, (size_t)mHeight)) )
-	{
-		return false;
-	}
-
-    char* data = (char*)outputCPU;
-	cudaMemcpy( outputCPU, mRGBA, (mWidth * mHeight) * 4, cudaMemcpyDeviceToHost );
-
-	*outputGPU = mRGBA;
-
-	return true;
 }
 
 // onEOS
@@ -319,8 +287,8 @@ gstCamera* gstCamera::Create()
 		<< 720
 		<< ", format=(string)NV12 ! nvvidconv flip-method=2 ! ";
 	ss << "video/x-raw ! appsink name=mysink";
-        mOnboardCamera = true;
-        return Create(ss.str(), 720, 1280);
+    mOnboardCamera = true;
+    return Create(ss.str(), 720, 1280);
 }
 
 // Create

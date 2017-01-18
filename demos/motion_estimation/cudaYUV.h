@@ -10,21 +10,15 @@
 #include <VX/vx_types.h>
 #include "cudaUtility.h"
 
-/**
- * Setup NV12 color conversion constants.
- * cudaNV12SetupColorspace() isn't necessary for the user to call, it will be
- * called automatically by cudaNV12ToRGBA() with a hue of 0.0.
- * However if you want to setup custom constants (ie with a hue different than 0),
- * then you can call cudaNV12SetupColorspace() at any time, overriding the default.
- */
-cudaError_t cudaNV12SetupColorspace( float hue = 0.0f );
-
 //////////////////////////////////////////////////////////////////////////////////
 /// @name YUV to RGBf
 //////////////////////////////////////////////////////////////////////////////////
+bool ConvertYUVtoRGBA( void* input, void** outputCPU, void** outputGPU, size_t width, size_t height );
 
 cudaError_t cudaYUVToRGBA( uint8_t* input, size_t inputPitch, uint8_t* output, size_t outputPitch, size_t width, size_t height );
 cudaError_t cudaYUVToRGBA( uint8_t* input, uint8_t* output, size_t width, size_t height );
+
+bool ConvertRGBtoYUV( void* input, bool gpuAddr, void** output, size_t width, size_t height );
 
 cudaError_t cudaRGBAToYUV( uint8_t* input, size_t inputPitch, uint8_t* output, size_t outputPitch, size_t width, size_t height );
 cudaError_t cudaRGBAToYUV( uint8_t* input, uint8_t* output, size_t width, size_t height );

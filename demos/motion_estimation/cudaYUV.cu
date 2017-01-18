@@ -4,6 +4,88 @@
 #include "config.h"
 #include "cudaYUV.h"
 
+void *mRGBA;
+void *mRGBA2;
+void *mYUV;
+
+// ConvertRGBA
+
+bool ConvertRGBtoYUV( void* input, bool gpuAddr, void** output, size_t width, size_t height )
+{
+	if( !input || !output )
+		return false;
+
+	if (gpuAddr)
+	{
+		// Data is already on the GPU so no need to copy
+		mRGBA2 = input;
+	}
+	else
+	{
+		if( !mRGBA2 )
+		{
+			if( CUDA_FAILED(cudaMalloc(&mRGBA2, (width * height) * 4)) )
+			{
+				printf(LOG_CUDA "rtpStream -- failed to allocate memory for %ux%u RGBA texture\n", (unsigned int)width, (unsigned int)height);
+				return false;
+			}
+		}
+		// HOST buffer so copy the RGB data to the GPU
+		cudaMemcpy( mRGBA2, input, (width * height) * 4, cudaMemcpyHostToDevice );
+	}
+
+	if( !mYUV )
+	{
+		if( CUDA_FAILED(cudaMalloc(&mYUV, (width * height) * 2)) )
+		{
+			printf(LOG_CUDA "rtpStream -- failed to allocate memory for %ux%u YUV texture\n", (unsigned int)width, (unsigned int)height);
+			return false;
+		}
+	}
+
+	// RTP is YUV
+
+	// Push the RGB data over to the GPU
+	if( CUDA_FAILED(cudaRGBAToYUV((uint8_t*)mRGBA2, (uint8_t*)mYUV, (size_t)width, (size_t)height)) )
+
+	{
+		return false;
+	}
+
+    // Pull the color converted YUV data off the GPU
+	cudaMemcpy( output, mYUV, (width * height) * 2, cudaMemcpyDeviceToHost );
+
+	return true;
+}
+
+bool ConvertYUVtoRGBA( void* input, void** outputCPU, void** outputGPU, size_t width, size_t height )
+{
+	if( !input || !outputCPU )
+		return false;
+
+	if( !mRGBA )
+	{
+		if( CUDA_FAILED(cudaMalloc(&mRGBA, (width * height) * 4)) )
+		{
+			printf(LOG_CUDA "ConvertYUVtoRGBA -- failed to allocate memory for %ux%u RGBA texture\n", (int)width, (int)height);
+			return false;
+		}
+	}
+
+	// RTP is YUV
+	if( CUDA_FAILED(cudaYUVToRGBA((uint8_t*)input, (uint8_t*)mRGBA, (size_t)width, (size_t)height)) )
+	{
+		printf(LOG_CUDA "cudaYUVToRGBA -- failed to convert ux%u RGBA texture\n", (int)width, (int)height);
+		return false;
+	}
+
+	cudaMemcpy( outputCPU, mRGBA, (width * height) * 4, cudaMemcpyDeviceToHost );
+
+	*outputGPU = mRGBA;
+
+	return true;
+}
+
 __constant__ uint32_t constAlpha;
 __constant__ float  constHueColorSpaceMat[9];
 
@@ -272,30 +354,6 @@ cudaError_t cudaRGBToYUV( uint8_t* srcDev, uint8_t* destDev, size_t width, size_
 }
 
 #define ARROW_PITCH 16
-__device__ unsigned int motionDetect(uint8_t* image, uint32_t* motionfeilds, uint8_t x, uint8_t y)
-{
-	int processingPitch = 320 * 2;
-	int motionStride = ARROW_PITCH/2;
-	uint32_t sum = 0;
-	int xx,yy = 0;
-
-//printf("motionDetect >> x=%d, y=%d\n", x, y);
-
-	// Calculate starting position in image
-	y = y*processingPitch;
-	x = x*motionStride;
-
-	// Sum values in area (8x8 as motion (two vx_float32 values) is for each 2x2 pixels)
-	for (yy=y; yy<y+(processingPitch*motionStride); yy+=processingPitch)
-	{
-		for (xx=x; xx<x+motionStride; xx++)
-		{
-printf("motionDetect >> xx=%d, yy=%d\n", xx, yy);
-//			sum += motionfeilds[xx + yy];
-		}
-	}
-	return sum;
-}
 
 /*
  1 2 3 4 5 6 7 8 9 0 a b c d e f
@@ -396,9 +454,9 @@ enum ecolour
 __device__ static int colour[3][3] = { {0x00, 0xff, 0x00}, {0xff, 0xbe, 0x00}, {0xff, 0x00, 0x00} };
 //                                      GREEN               AMBER               RED
 
-__device__ bool renderArrow(uint8_t* image, int direction, int speed, uint32_t x, uint32_t y)
+__device__ bool renderArrow(uint8_t* image, int direction, int speed, uint32_t x, uint32_t y, uint32_t width)
 {
-	int processingPitch = 640*4;
+	int processingPitch = width*4;
 	uint32_t xx,yy = 0;
 	int pixx = 0;
 	int pixy = 0;
@@ -406,7 +464,7 @@ __device__ bool renderArrow(uint8_t* image, int direction, int speed, uint32_t x
 	int arrowType = 0;
 	int speedcolour = 0;
 
-    if (speed <=0) return;
+    if (speed <=0) return true;
 
 	// Decide what arrow we need to draw
 	switch (direction)
@@ -548,7 +606,7 @@ __device__ float calculateAngle(vx_float32 dir_x, vx_float32 dir_y)
     return angle;
 }
 
-__device__ bool render(uint8_t* image, vx_float32 *motion, uint32_t x, uint32_t y)
+__device__ bool render(uint8_t* image, vx_float32 *motion, uint32_t x, uint32_t y, uint32_t width)
 {
 	vx_float32 dir_x, dir_y;
 	int direction, speed = 5;
@@ -587,7 +645,7 @@ __device__ bool render(uint8_t* image, vx_float32 *motion, uint32_t x, uint32_t 
 			direction = DIR_SW;
 		else
 			direction = 999;
-		renderArrow(image, direction, speed, x, y);
+		renderArrow(image, direction, speed, x, y, width);
 	}
 
 	return true;
@@ -616,7 +674,7 @@ __global__ void MotionFields(uint8_t* image,
     // Grab motion for our pixel location (location of arrow)
     motion = &motionfeilds[(y*processingPitch)*(ARROW_PITCH/2) + x * (ARROW_PITCH)];
 
-	render(image, motion, x, y);
+	render(image, motion, x, y, width);
 }
 
 static vx_float32* motionfeildsGPU = 0;

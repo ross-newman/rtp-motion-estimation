@@ -48,19 +48,11 @@
 // includes CUDA Runtime
 #include <cuda_runtime.h>
 
+#include "config.h"
 #include "iterative_motion_estimator.hpp"
 #include "gstCamera.h"
 #include "rtpStream.h"
 #include "cudaYUV.h"
-
-#define HEIGHT 480  // Lower resolution stream for RTP
-#define WIDTH 640
-
-#define HEADLESS 1  // Dont put anything out on the local display
-#define GST_MULTICAST 0
-#define GST_SOURCE 1
-#define GST_RTP_SINK 1
-#define TIMEING_DEBUG 0
 
 #if GST_RTP_SINK
 #include "rtpStream.h"
@@ -83,7 +75,11 @@ public:
 private:
     int mHeight;
 	ContextGuard *context;
+#if RTP_STREAM_SOURCE
+	rtpStream *camera;
+#else
 	gstCamera *camera;
+#endif
 	const FrameSource::SourceType  sourceType = VIDEO_SOURCE;
 	const std::string sourceName = "gst-stream";
 	char buffer[HEIGHT * WIDTH * 4];
@@ -95,23 +91,38 @@ gstSource::gstSource(nvxio::ContextGuard *con)
 	GPUBufferRGB = 0;
     context = con;
 	std::ostringstream pipeline;
+
+#if GST_SOURCE
 #if GST_MULTICAST
 	pipeline << "udpsrc address=239.192.1.43 port=5004 caps=\"application/x-rtp, media=(string)video, clock-rate=(int)90000, encoding-name=(string)RAW, sampling=(string)YCbCr-4:2:2, depth=(string)8, width=(string)" << WIDTH << ", height=(string)" << HEIGHT << ", payload=(int)96\" ! ";
     printf("udpsrc address=239.192.1.44 port=5004 \n");
 #else
 	pipeline << "udpsrc port=5004 caps=\"application/x-rtp, media=(string)video, clock-rate=(int)90000, encoding-name=(string)RAW, sampling=(string)YCbCr-4:2:2, depth=(string)8, width=(string)" << WIDTH << ", height=(string)" << HEIGHT << ", payload=(int)96\" ! ";
-    printf("udpsrc port=5004 \n");
 #endif
 	pipeline << "queue  ! ";
 	pipeline << "rtpvrawdepay  ! ";
-	pipeline << "appsink name=mysink";
+	pipeline << "queue  ! ";
+	pipeline << "appsink name=mysink sync=false";
+#endif
 
 	static  std::string pip = pipeline.str();
+#if RTP_STREAM_SOURCE
+	camera = new rtpStream(HEIGHT, WIDTH);
+#else
 	camera = gstCamera::Create(pip, HEIGHT, WIDTH);
+#endif
 }
 
 bool gstSource::open()
 {
+#if RTP_STREAM_SOURCE
+#if GST_MULTICAST
+	camera->rtpStreamIn((char*)"239.192.1.43", 5004);
+#else
+	camera->rtpStreamIn((char*)"127.0.0.1", 5004);
+#endif
+#endif
+
 	if( !camera->Open() )
 	{
 		printf("\nmotion-estimation:  failed to open camera for streaming\n");
@@ -240,11 +251,12 @@ class mytimer
 {
 public:
 	void tic(void) {timer.tic(); }
-	void toc(char* msg) {
+	double toc(char* msg) {
 		ms = timer.toc();
 #if TIMEING_DEBUG
 		printf("[TIMER] %s %f ms\n", msg, ms );
 #endif
+		return ms;
 	}
 private:
 	double ms;
@@ -273,7 +285,7 @@ FrameSource::FrameStatus gstSource::fetch(vx_image image, vx_uint32 timeout)
 	const vx_imagepatch_addressing_t src_addr = {
         WIDTH, HEIGHT, sizeof(vx_uint8)*4, WIDTH * sizeof(vx_uint8)*4, VX_SCALE_UNITY, VX_SCALE_UNITY, 1, 1 };
 
-	if ( camera->ConvertYUVtoRGBA(GPUbuffer, (void**)&buffer, (void**)&GPUBufferRGB) )
+	if ( ConvertYUVtoRGBA(GPUbuffer, (void**)&buffer, (void**)&GPUBufferRGB, WIDTH, HEIGHT ) )
 	{
 		vxCopyImagePatch(	image,
 							&rect,
@@ -370,6 +382,8 @@ static bool read(const std::string& configFile,
 //
 // main - Application entry point
 //
+#include <sys/time.h>
+#include <sys/resource.h>
 
 int main(int argc, char** argv)
 {
@@ -377,6 +391,11 @@ int main(int argc, char** argv)
 	double rtpproc_ms = 0;
 	vx_status status;
 	int deviceCount = 0;
+	char *roi = 0;
+
+	// High priority
+ //   int ret = 0;
+ //   ret = setpriority(PRIO_PROCESS, 0, 10);
 
 #if GST_SOURCE
     std::cout << "Abaco Systems (ross.newman@abaco.com)\n\tModified motion estimation for Gstreamer enabled RTP streams.\n\tOriginal demonstration code by Nvidia (see source licence included in headers).\n\n";
@@ -464,11 +483,17 @@ int main(int argc, char** argv)
 
 #endif
 
-#if !HEADLESS
+#if HEADLESS
+		//
+		// Dummy event handler (headless)
+		//
+		EventData eventData;
+		eventData.pause = false;
+		eventData.stop =false;
+#else
 		//
 		// Create a Render
 		//
-		// TODO get rid of rendrer completely not needed for RTP streams.
 		std::unique_ptr<nvxio::Render> render = nvxio::createDefaultRender(context, "Motion Estimation Demo",
 																		   frameConfig.frameWidth, frameConfig.frameHeight);
 
@@ -480,10 +505,6 @@ int main(int argc, char** argv)
 
 		EventData eventData;
 		render->setOnKeyboardEventCallback(keyboardEventCallback, &eventData);
-#else
-		EventData eventData;
-		eventData.pause = false;
-		eventData.stop =false;
 #endif
 
         //
@@ -582,7 +603,7 @@ int main(int argc, char** argv)
 #if !GST_SOURCE
             syncTimer->synchronize();
 #endif
-            totalTimer.toc((char*)"Display Time : ");
+            double total_ms = totalTimer.toc((char*)"Display Time : ");
 
             totalTimer.tic();
 
@@ -598,38 +619,36 @@ int main(int argc, char** argv)
             //
             // Render
             //
-#if GST_SOURCE
-			// Some debug
-			// gstSource::dumpVxImage(prevFrame);
-#endif
 			vx_image motion = ime.getMotionField();
 
 #if !HEADLESS
-				render->putImage(prevFrame);
+//gstSource::dumpVxImage(prevFrame);
+			render->putImage(prevFrame);
 
-				nvxio::Render::MotionFieldStyle mfStyle = {
-					{  0u, 255u, 255u, 255u} // color
-				};
+			nvxio::Render::MotionFieldStyle mfStyle = {
+				{  0u, 255u, 255u, 255u} // colour
+			};
 
-				render->putMotionField(motion, mfStyle);
+			render->putMotionField(motion, mfStyle);
 
-				std::ostringstream msg;
-				msg << std::fixed << std::setprecision(1);
+			std::ostringstream msg;
+			msg << std::fixed << std::setprecision(1);
 
-				msg << "Resolution: " << frameConfig.frameWidth << 'x' << frameConfig.frameHeight << std::endl;
-				msg << "Algorithm: " << proc_ms << " ms / " << 1000.0 / proc_ms << " FPS" << std::endl;
-				msg << "Display: " << total_ms  << " ms / " << 1000.0 / total_ms << " FPS" << std::endl;
-				msg << "Space - pause/resume" << std::endl;
-				msg << "Esc - close the sample";
+			msg << "Resolution: " << frameConfig.frameWidth << 'x' << frameConfig.frameHeight << std::endl;
+			msg << "Algorithm: " << proc_ms << " ms / " << 1000.0 / proc_ms << " FPS" << std::endl;
+			msg << "Display: " << total_ms  << " ms / " << 1000.0 / total_ms << " FPS" << std::endl;
+			msg << "Space - pause/resume" << std::endl;
+			msg << "Esc - close the sample";
 
-				nvxio::Render::TextBoxStyle textStyle = {
-					{255u, 255u, 255u, 255u}, // color
-					{0u,   0u,   0u, 127u}, // bgcolor
-					{10u, 10u} // origin
-				};
+			nvxio::Render::TextBoxStyle textStyle = {
+				{255u, 255u, 255u, 255u}, // colour
+				{0u,   0u,   0u, 127u}, // bgcolour
+				{10u, 10u} // origin
+			};
 
-				render->putTextViewport(msg.str(), textStyle);
+			render->putTextViewport(msg.str(), textStyle);
 #endif
+
 #if GST_RTP_SINK
 			{
 				debugTimer.tic();
@@ -648,7 +667,7 @@ int main(int argc, char** argv)
 					mb_width,
 					mb_height,
 					sizeof(vx_float32)*2,
-					(int)(mb_width * sizeof(vx_float32)*2),
+					(vx_int32)(mb_width * sizeof(vx_float32)*2),
 					VX_SCALE_UNITY,
 					VX_SCALE_UNITY,
 					1,
@@ -686,22 +705,23 @@ int main(int argc, char** argv)
 				//
 				int result;
 
-				char roi[frameConfig.frameWidth * frameConfig.frameHeight * 4];
+//printf(">>>>>>>>>>>> width %d, height %d\n", frameConfig.frameWidth, frameConfig.frameHeight);
 
-//printf(">>>>>>>>>>>> %d %d\n", frameConfig.frameWidth, frameConfig.frameHeight);
+				// Allocate buffer if not already allocated
+				if (!roi) roi = (char*)malloc(frameConfig.frameWidth * frameConfig.frameHeight * 4);
 
 				const vx_rectangle_t rect = { 0, 0, frameConfig.frameWidth, frameConfig.frameHeight};
 				const vx_imagepatch_addressing_t image_src_addr = {
 					frameConfig.frameWidth,
 					frameConfig.frameHeight,
-
 					sizeof(vx_uint8)*4,
-					(int)(frameConfig.frameWidth * sizeof(vx_uint8)*4),
-
+					(vx_int32)(frameConfig.frameWidth * sizeof(vx_uint8)*4),
 					VX_SCALE_UNITY,
 					VX_SCALE_UNITY,
 					1,
 					1 };
+
+//gstSource::dumpVxImage(prevFrame);
 
 				{
 					//
@@ -729,7 +749,8 @@ int main(int argc, char** argv)
                 eventData.stop = true;
             }
 #endif
-#if !GST_SOURCE
+//#if !GST_SOURCE
+#if 1
             if (!eventData.pause)
             {
                 vxAgeDelay(frame_delay);
@@ -741,7 +762,9 @@ int main(int argc, char** argv)
         // Release all objects
         //
 
+#if !GST_SOURCE
         vxReleaseDelay(&frame_delay);
+#endif
     }
     catch (const std::exception& e)
     {

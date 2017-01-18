@@ -8,8 +8,9 @@ Please be patient whilst we fix some of the issues with this code.
 - [x] Use Gstreamer1.0 for RTP nvxio FrameSource
 - [x] Output video as raw RTP backets (no Gstreamer required) 
 - [x] CUDA YUV to RGB conversion
-- [ ] CUDA RBG to YUV conversion
-- [ ] Output RTP stram with motion overlay
+- [x] CUDA RBG to YUV conversion
+- [x] Output RTP stream with motion overlay
+- [x] Colour code arrows based on speed (green=slow, amber=medium, red=fast)
 
 ## RTP streaming example for Military Ground Vehicles (DEF STAN 00-82)
 ![RTP Camera example](abaco/RTP-Camera-Example.PNG)
@@ -55,6 +56,10 @@ There are several test scripts provided in the root directory.
 * [testRtp04-syntheticvideo.sh] - Use a gstreamer videotessrc as input and RTP output (recommended)
 * [testRtp05-webcam.sh] - Use a webcam as input and RTP output 
 * [testRtp06-file.sh] - Use the test file 960 x 540 as input and RTP output 
+
+Below is the example gstreamer pipline of a moving ball that can be used to test the algorithm :
+
+![Test video source](abaco/test-screenshot01.png)
 
 ## Links
 * [Abaco Systems](http://abaco.com)

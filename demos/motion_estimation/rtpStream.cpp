@@ -1,4 +1,5 @@
 #include <pthread.h>
+#include <sched.h>
 #include "config.h"
 #include "rtpStream.h"
 
@@ -6,61 +7,9 @@ extern void DumpHex(const void* data, size_t size);
 
 #define RTP_TO_YUV_ONGPU 1 // Offload colour conversion to GPU if set
 #define PITCH 4
+
 #if RTP_TO_YUV_ONGPU
 #include "cudaYUV.h"
-
-void * mRGBA;
-void * mYUV;
-// ConvertRGBA
-
-bool ConvertRGBtoYUV( void* input, bool gpuAddr, void** output, size_t width, size_t height )
-{
-	if( !input || !output )
-		return false;
-
-	if (gpuAddr)
-	{
-		// Data is already on the GPU so no need to copy
-		mRGBA = input;
-	}
-	else
-	{
-		if( !mRGBA )
-		{
-			if( CUDA_FAILED(cudaMalloc(&mRGBA, (width * height) * 4)) )
-			{
-				printf(LOG_CUDA "rtpStream -- failed to allocate memory for %ux%u RGBA texture\n", (unsigned int)width, (unsigned int)height);
-				return false;
-			}
-		}
-		// HOST buffer so copy the RGB data to the GPU
-		cudaMemcpy( mRGBA, input, (width * height) * PITCH, cudaMemcpyHostToDevice );
-	}
-
-	if( !mYUV )
-	{
-		if( CUDA_FAILED(cudaMalloc(&mYUV, (width * height) * 2)) )
-		{
-			printf(LOG_CUDA "rtpStream -- failed to allocate memory for %ux%u YUV texture\n", (unsigned int)width, (unsigned int)height);
-			return false;
-		}
-	}
-
-	// RTP is YUV
-
-	// Push the RGB data over to the GPU
-	if( CUDA_FAILED(cudaRGBAToYUV((uint8_t*)mRGBA, (uint8_t*)mYUV, (size_t)width, (size_t)height)) )
-
-	{
-		return false;
-	}
-
-    // Pull the color converted YUV data off the GPU
-	cudaMemcpy( output, mYUV, (width * height) * 2, cudaMemcpyDeviceToHost );
-
-	return true;
-}
-
 #else
 typedef struct float4 {
     float x;
@@ -112,96 +61,327 @@ void rgbtoyuv(int y, int x, char* yuv, char* rgb)
 rtpStream::rtpStream(int height, int width) :
     camera(height, width)
 {
+	mWidth = width;
     mFrame = 0;
+    mPortNoIn = 0;
+    mPortNoOut = 0;
+    gpuBuffer = 0;
     pthread_mutex_init(&mutex, NULL);
+    bufferIn = (char*)malloc(height * width * 2); // Holds YUV data
+}
+
+rtpStream::~rtpStream(void)
+{
+	free(bufferIn);
 }
 
 /* Broadcast the stream to port 5004 */
 void rtpStream::rtpStreamIn( char* hostname, int portno)
 {
+	printf("[RTP] rtpStreamIn %s %d\n", hostname, portno);
 	mPortNoIn = portno;
 	strcpy(mHostnameIn, hostname);
 }
 
 void rtpStream::rtpStreamOut(char* hostname, int portno)
 {
-	// TODO : Implement input
+	printf("[RTP] rtpStreamOut %s %d\n", hostname, portno);
 	mPortNoOut = portno;
 	strcpy(mHostnameOut, hostname);
 }
 
 bool rtpStream::Open()
 {
-    /* socket: create the socket */
-    mSockfd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-    if (mSockfd < 0)
-    {
-        printf("ERROR opening socket");
-	    return error;
+	if (mPortNoIn)
+	{
+		struct sockaddr_in si_me;
+
+		int i, slen = sizeof(si_me);
+
+		//create a UDP socket
+		if ((mSockfdIn=socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) == -1)
+		{
+			printf("ERROR opening socket\n");
+			return error;
+		}
+
+		// zero out the structure
+		memset((char *) &si_me, 0, sizeof(si_me));
+
+		si_me.sin_family = AF_INET;
+		si_me.sin_port = htons(mPortNoIn);
+		si_me.sin_addr.s_addr = htonl(INADDR_ANY);
+
+		//bind socket to port
+		if( bind(mSockfdIn , (struct sockaddr*)&si_me, sizeof(si_me) ) == -1)
+		{
+			printf("ERROR binding socket\n");
+			return error;
+		}
+
 	}
 
-    /* gethostbyname: get the server's DNS entry */
-    mServer = gethostbyname(mHostnameOut);
-    if (mServer == NULL) {
-        fprintf(stderr,"ERROR, no such host as %s\n", mHostnameOut);
-        exit(0);
-    }
+	if (mPortNoOut)
+	{
+		/* socket: create the outbound socket */
+		mSockfdOut = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+		if (mSockfdOut < 0)
+		{
+			printf("ERROR opening socket\n");
+			return error;
+		}
 
-    /* build the server's Internet address */
-    bzero((char *) &mServeraddr, sizeof(mServeraddr));
-    mServeraddr.sin_family = AF_INET;
-    bcopy((char *)mServer->h_addr,
-	  (char *)&mServeraddr.sin_addr.s_addr, mServer->h_length);
-    mServeraddr.sin_port = htons(mPortNoOut);
+		/* gethostbyname: get the server's DNS entry */
+		mServerOut = gethostbyname(mHostnameOut);
+		if (mServerOut == NULL) {
+			fprintf(stderr,"ERROR, no such host as %s\n", mHostnameOut);
+			exit(0);
+		}
 
-    /* send the message to the server */
-    mServerlen = sizeof(mServeraddr);
+		/* build the server's Internet address */
+		bzero((char *) &mServeraddrOut, sizeof(mServeraddrOut));
+		mServeraddrOut.sin_family = AF_INET;
+		bcopy((char *)mServerOut->h_addr,
+		  (char *)&mServeraddrOut.sin_addr.s_addr, mServerOut->h_length);
+		mServeraddrOut.sin_port = htons(mPortNoOut);
+
+		/* send the message to the server */
+		mServerlenOut = sizeof(mServeraddrOut);
+	}
 
     return true;
 }
 
 void rtpStream::Close()
 {
-	close(mSockfd);
+	if (mPortNoIn)
+	{
+		close(mSockfdIn);
+	}
+
+	if (mPortNoOut)
+	{
+		close(mSockfdOut);
+	}
 }
 
 #if ARM
 void endianswap32(uint32_t *data, int length)
 {
-  int c = 0;
-  for (c=0;c<length;c++)
-    data[c] = __bswap_32 (data[c]);
+	int c = 0;
+	for (c=0;c<length;c++)
+		data[c] = __bswap_32 (data[c]);
 }
 
 void endianswap16(uint16_t *data, int length)
 {
-  int c = 0;
-  for (c=0;c<length;c++)
-    data[c] = __bswap_16 (data[c]);
+	int c = 0;
+	for (c=0;c<length;c++)
+		data[c] = __bswap_16 (data[c]);
 }
 #endif
 
 void rtpStream::update_header(header *packet, int line, int last, int32_t timestamp, int32_t source)
 {
-  bzero((char *)packet, sizeof(header));
-  packet->rtp.protocol = RTP_VERSION << 30;
-  packet->rtp.protocol = packet->rtp.protocol | RTP_PAYLOAD_TYPE << 16;
-  packet->rtp.protocol = packet->rtp.protocol | sequence_number++;
-  /* leaving other fields as zero TODO Fix*/
-  packet->rtp.timestamp = timestamp += (Hz90 / RTP_FRAMERATE);
-  packet->rtp.source = source;
-  packet->payload.extended_sequence_number = 0; /* TODO : Fix extended seq numbers */
-  packet->payload.line[0].length = MAX_BUFSIZE;
-  packet->payload.line[0].line_number = line;
-  packet->payload.line[0].offset = 0;
-  if (last==1)
-  {
-    packet->rtp.protocol = packet->rtp.protocol | 1 << 23;
-  }
+	bzero((char *)packet, sizeof(header));
+	packet->rtp.protocol = RTP_VERSION << 30;
+	packet->rtp.protocol = packet->rtp.protocol | RTP_PAYLOAD_TYPE << 16;
+	packet->rtp.protocol = packet->rtp.protocol | sequence_number++;
+	/* leaving other fields as zero TODO Fix*/
+	packet->rtp.timestamp = timestamp += (Hz90 / RTP_FRAMERATE);
+	packet->rtp.source = source;
+	packet->payload.extended_sequence_number = 0; /* TODO : Fix extended seq numbers */
+	packet->payload.line[0].length = mWidth*2;
+	packet->payload.line[0].line_number = line;
+	packet->payload.line[0].offset = 0;
+	if (last==1)
+	{
+		packet->rtp.protocol = packet->rtp.protocol | 1 << 23;
+	}
 #if 0
-  printf("0x%x, 0x%x, 0x%x \n", packet->rtp.protocol, packet->rtp.timestamp, packet->rtp.source);
-  printf("0x%x, 0x%x, 0x%x \n", packet->payload.line[0].length, packet->payload.line[0].line_number, packet->payload.line[0].offset);
+	printf("0x%x, 0x%x, 0x%x \n", packet->rtp.protocol, packet->rtp.timestamp, packet->rtp.source);
+	printf("0x%x, 0x%x, 0x%x \n", packet->payload.line[0].length, packet->payload.line[0].line_number, packet->payload.line[0].offset);
 #endif
+}
+
+#define GPU_COPY 0
+#define RTP_CHECK 0
+void *ReceiveThread(void* data)
+{
+	tx_data *arg;
+	ssize_t len=0;
+	rtp_packet *packet;
+	bool receiving = true;
+	int scancount = 0;
+	int lastpacket;
+
+	arg = (tx_data *)data;
+
+	// Allocate a buffer the first time we call this function
+	if (!arg->stream->gpuBuffer) cudaMalloc(&arg->stream->gpuBuffer, arg->width * arg->width * 2);
+
+#if GPU_COPY
+	cudaStream_t s;
+	cudaStreamCreate(&s);
+//	cudaMemset(gpuBuffer, 0x00, mWidth * mHeight * 2);
+#endif
+
+#if 0
+	// Clear buffers and return pattern (quick test)
+	cudaMemset(arg->stream->gpuBuffer, 0xff, (arg->height * arg->width) *2);
+	cudaMemcpy(arg->stream->gpuBuffer, arg->stream->bufferIn, arg->width * arg->height * 2, cudaMemcpyHostToDevice );
+	arg->gpuAddr = arg->stream->gpuBuffer;
+	return 0;
+#endif
+
+	while (receiving)
+	{
+		int marker;
+#if RTP_CHECK
+		int version;
+		int payloadType;
+		int seqNo, last;
+#endif
+		bool valid = false;
+
+		//
+		// Read data until we get the next RTP header
+		//
+		while (!valid)
+		{
+			//
+			// Read in the RTP data
+			//
+
+			len = recvfrom(arg->stream->mSockfdIn, arg->stream->udpdata, MAX_UDP_DATA, 0, NULL, NULL);
+			packet = (rtp_packet *)arg->stream->udpdata;
+#if ARM
+			endianswap32((uint32_t *)packet, sizeof(rtp_header)/4);
+#endif
+			//
+			// Decode Header bits and confirm RTP packet
+			//
+#if RTP_CHECK
+			payloadType = (packet->head.rtp.protocol & 0x007F0000) >> 16;
+			version = (packet->head.rtp.protocol & 0xC0000000) >> 30;
+			seqNo = (packet->head.rtp.protocol & 0x0000FFFF);
+			if ((payloadType == 96) && (version ==2))
+#endif
+			{
+#if 0
+				if (seqNo != last + 1) {
+
+					printf("Dropped %d packets (%d to %d)\n", seqNo - last, last, seqNo);
+					last = seqNo;
+				}
+#else
+				valid = true;
+#endif
+			}
+		}
+
+		//
+		// Start to decode packet
+		//
+		if (valid)
+		{
+			bool scanline = true;
+
+			// Decode Header bits
+			marker = (packet->head.rtp.protocol & 0x00800000) >> 23;
+#if RTP_CHECK
+//			printf("[RTP] seqNo %d, Packet %d, marker %d, Rx length %d, timestamp 0x%08x\n", seqNo, payloadType, marker, len, packet->head.rtp.timestamp);
+#endif
+
+			//
+			// Count the number of scanlines in the packet
+			//
+			while (scanline)
+			{
+				int more;
+#if ARM
+				endianswap16((uint16_t *)&packet->head.payload.line[scancount], sizeof(line_header)/2 );
+#endif
+				more = (packet->head.payload.line[scancount].offset & 0x8000) >> 15;
+				if (!more) scanline =  false; // The last scanline
+				scancount++;
+			}
+
+			//
+			// Now we know the number of scanlines we can copy the data
+			//
+			int payloadoffset = sizeof(rtp_header) + 2 + (scancount * sizeof(line_header));
+			int payload = 0;
+
+			lastpacket = payloadoffset;
+			for (int c=0;c<scancount; c++)
+			{
+				uint32_t os;
+				uint32_t pixel;
+				uint32_t length;
+
+				os = payloadoffset + payload;
+				pixel = ((packet->head.payload.line[c].offset & 0x7FFF)*2) + ((packet->head.payload.line[c].line_number & 0x7FFF) * (arg->width*2));
+				length = packet->head.payload.line[c].length & 0xFFFF;
+
+#if GPU_COPY
+				// Async copy (non blocking)
+				cudaMemcpyAsync( (void*)&arg->stream->gpuBuffer[pixel], (void*)&arg->stream->udpdata[os], length, cudaMemcpyHostToDevice, s );
+#else
+				memcpy(&arg->stream->bufferIn[pixel], &arg->stream->udpdata[os], length);
+#endif
+				lastpacket += length;
+				payload += length;
+			}
+
+			if (marker) receiving = false;
+
+			scanline = true;
+			scancount = 0;
+		}
+	}
+
+	arg->yuvframe = arg->stream->bufferIn;
+	// Video data is in host buffer so copy the YUV data to the GPU
+#if !GPU_COPY
+	cudaMemcpy( arg->stream->gpuBuffer, arg->stream->bufferIn, arg->width * arg->height * 2, cudaMemcpyHostToDevice );
+#else
+    // Destroy cuda stream
+	cudaStreamDestroy(s);
+#endif
+	arg->gpuAddr = arg->stream->gpuBuffer;
+//	printf(">>> 0x%08x, 0x%08x \n", arg->stream->bufferIn, arg->stream->gpuBuffer);
+
+	return 0;
+}
+
+static tx_data arg_rx;
+bool rtpStream::Capture( void** cpu, void** cuda, unsigned long timeout )
+{
+	sched_param param;
+	pthread_attr_t tattr;
+	pthread_t rx;
+	arg_rx.rgbframe = 0;
+	arg_rx.gpuAddr = 0;
+	arg_rx.width = mWidth;
+	arg_rx.height = mHeight;
+	arg_rx.stream = this;
+
+	// Elevate priority to get the RTP packets in quickly
+    pthread_attr_init(&tattr);
+    pthread_attr_getschedparam(&tattr, &param);
+	param.sched_priority = 99;
+    pthread_attr_setschedparam(&tattr, &param);
+
+	// Start a thread so we can start capturing the next frame while transmitting the data
+	pthread_create(&rx, &tattr, ReceiveThread, &arg_rx );
+
+	// Wait for completion
+	pthread_join(rx, 0 );
+//printf(">>> 0x%08x, 0x%08x ", bufferIn, gpuBuffer);
+	*cpu = (void*)bufferIn;
+	*cuda = (void*)gpuBuffer;
+	return true;
 }
 
 void *TransmitThread(void* data)
@@ -225,52 +405,61 @@ void *TransmitThread(void* data)
     /* send a frame */
     pthread_mutex_lock(&arg->stream->mutex);
     {
-      struct timeval NTP_value;
-      int32_t time = 10000;
+		struct timeval NTP_value;
+		int32_t time = 10000;
 
-      for (c=0;c<(arg->height);c++)
-      {
-        int x,last = 0;
-        if (c==arg->height-1) last=1;
-        arg->stream->update_header((header*)&packet, c, last, time, RTP_SOURCE);
+		for (c=0;c<(arg->height);c++)
+		{
+			int x,last = 0;
+			if (c==arg->height-1) last=1;
+				arg->stream->update_header((header*)&packet, c, last, time, RTP_SOURCE);
 
 #if RTP_TO_YUV_ONGPU
-        x = c * (arg->width * 2);
-        // Copy previously converted line into header
-		memcpy(packet.data, (void*)&yuvdata[x], arg->width * 2);
+			x = c * (arg->width * 2);
+			// Copy previously converted line into header
+			memcpy(packet.data, (void*)&yuvdata[x], arg->width * 2);
 #else
-        x = c * (arg->width * PITCH);
-        // CPU conversion, might as well do one line at a time
-        rgbtoyuv(mHeight, mWidth, packet.data, (char*)&args.rgbframe[x]);
+			x = c * (arg->width * PITCH);
+			// CPU conversion, might as well do one line at a time
+			rgbtoyuv(arg->height, arg->width, packet.data, (char*)&arg->rgbframe[x]);
 #endif
 
 #if ARM
-        endianswap32((uint32_t *)&packet, sizeof(rtp_header)/4);
-        endianswap16((uint16_t *)&packet.head.payload, sizeof(payload_header)/2);
+			endianswap32((uint32_t *)&packet, sizeof(rtp_header)/4);
+			endianswap16((uint16_t *)&packet.head.payload, sizeof(payload_header)/2);
 #endif
-        n = sendto(arg->stream->mSockfd, (char *)&packet, sizeof(rtp_packet), 0, (const sockaddr*)&arg->stream->mServeraddr, arg->stream->mServerlen);
-        if (n < 0)
-          fprintf(stderr, "ERROR in sendto");
-      }
+			n = sendto(arg->stream->mSockfdOut, (char *)&packet, sizeof(rtp_packet), 0, (const sockaddr*)&arg->stream->mServeraddrOut, arg->stream->mServerlenOut);
+//			if (n < 0)
+//				fprintf(stderr, "ERROR in sendto");
+		}
 
-      // printf("Sent frame %d\n", mFrame++);
+//		 printf("[RTP STREAM] Sent frame %d\n", arg->stream->mFrame++);
     }
     pthread_mutex_unlock(&arg->stream->mutex);
 }
 
 // Arguments sent to thread
-static tx_data args;
+static tx_data arg_tx;
 int rtpStream::Transmit(char* rgbframe, bool gpuAddr)
 {
+	sched_param param;
+	pthread_attr_t tattr;
 	pthread_t tx;
-	args.rgbframe = rgbframe;
-	args.gpuAddr = gpuAddr;
-	args.width = mWidth;
-	args.height = mHeight;
-	args.stream = this;
+	arg_tx.rgbframe = rgbframe;
+	arg_tx.gpuAddr = gpuAddr;
+	arg_tx.width = mWidth;
+	arg_tx.height = mHeight;
+	arg_tx.stream = this;
+
+	// Elevate priority to get the RTP packets out
+    pthread_attr_init(&tattr);
+    pthread_attr_getschedparam(&tattr, &param);
+	param.sched_priority = 99;
+    pthread_attr_setschedparam(&tattr, &param);
 
 	// Start a thread so we can start capturing the next frame while transmitting the data
-	pthread_create(&tx, NULL, TransmitThread, &args );
+	pthread_create(&tx, &tattr, TransmitThread, &arg_tx );
+//	pthread_join(tx, 0 );
 
     return 0;
 }

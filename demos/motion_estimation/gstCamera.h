@@ -33,9 +33,6 @@ public:
 	// Capture YUV (NV12)
 	bool Capture( void** cpu, void** cuda, unsigned long timeout=ULONG_MAX );
 
-	// Takes in captured YUV-NV12 CUDA image, converts to float4 RGBA (with pixel intensity 0-255)
-	bool ConvertYUVtoRGBA( void* input, void** outputCPU, void** outputGPU );
-
 private:
 	static void onEOS(_GstAppSink* sink, void* user_data);
 	static GstFlowReturn onPreroll(_GstAppSink* sink, void* user_data);
@@ -68,7 +65,6 @@ private:
 	uint32_t mLatestRingbuffer;
 	bool     mLatestRetrieved;
 
-	void* mRGBA;
 	unsigned int frame;
 };
 

@@ -40,18 +40,19 @@ Use his program to stream data to the udpsc example above on the tegra X1
 #include "camera.h"
 
 
-#define ARM                   1    /* Perform endian swap */
-#define RTP_VERSION           0x2  /* RFC 1889 Version 2 */
+#define ARM                   1    			/* Perform endian swap */
+#define RTP_VERSION           0x2  			/* RFC 1889 Version 2 */
 #define RTP_PADDING           0x0
 #define RTP_EXTENSION         0x0
 #define RTP_MARKER            0x0
-#define RTP_PAYLOAD_TYPE      0x60 /* 96 Dynamic Type */
-#define RTP_SOURCE            0x12345678 /* Sould be unique */
+#define RTP_PAYLOAD_TYPE      0x60 			/* 96 Dynamic Type */
+#define RTP_SOURCE            0x12345678 	/* Sould be unique */
 #define RTP_FRAMERATE         25
 
 #define Hz90                  90000
-#define NUM_LINES_PER_PACKET  1 /* can have more that one line in a packet */
-#define MAX_BUFSIZE 1280 * 3 /* allow for RGB data upto 1280 pixels wide */
+#define NUM_LINES_PER_PACKET  1 			/* can have more that one line in a packet */
+#define MAX_BUFSIZE 	      1280 * 3 		/* allow for RGB data upto 1280 pixels wide */
+#define MAX_UDP_DATA 		  1500  		/* enough space for three lines of UDP data MTU size should be checked */
 
 static unsigned long sequence_number;
 
@@ -98,20 +99,29 @@ class rtpStream : public camera
 {
 public:
     rtpStream(int height, int width);
-	void rtpStreamOut(char* hosstname, int port);
-	void rtpStreamIn(char* hosstname, int port);
+    ~rtpStream();
+	void rtpStreamOut(char* hostname, int port);
+	void rtpStreamIn(char* hostname, int port);
 	int Transmit(char* rgbframe, bool gpuAddr);
     bool Open();
 	void Close();
-    bool Capture( void** cpu, void** cuda, unsigned long timeout=ULONG_MAX ) { return false; };
+    bool Capture( void** cpu, void** cuda, unsigned long timeout=ULONG_MAX );
 	void update_header(header *packet, int line, int last, int32_t timestamp, int32_t source);
-    int mSockfd;
-    struct sockaddr_in mServeraddr;
-    int mServerlen;
+    int mSockfdIn;
+    int mSockfdOut;
+    struct sockaddr_in mServeraddrIn;
+    struct sockaddr_in mServeraddrOut;
+    socklen_t mServerlenIn;
+    socklen_t mServerlenOut;
     pthread_mutex_t mutex;
-private:
-    struct hostent *mServer;
     unsigned int mFrame;
+  	char* gpuBuffer;
+	char udpdata[MAX_UDP_DATA];
+    char* bufferIn;
+private:
+    struct hostent *mServerIn;
+    struct hostent *mServerOut;
+    int mWidth;
 	// Ingress port
     char mHostnameIn[100];
     int mPortNoIn;
@@ -123,6 +133,7 @@ private:
 typedef struct
 {
 	char* rgbframe;
+	char* yuvframe;
 	bool gpuAddr;
 	uint32_t width;
 	uint32_t height;
