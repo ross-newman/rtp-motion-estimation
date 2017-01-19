@@ -24,7 +24,7 @@
 # OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-*/
+*/ 
 
 #include <stdio.h>
 #include <iostream>
@@ -54,7 +54,7 @@
 #include "rtpStream.h"
 #include "cudaYUV.h"
 
-#if GST_RTP_SINK
+#if GST_RTP_SINK 
 #include "rtpStream.h"
 #endif
 
@@ -75,7 +75,7 @@ public:
 private:
     int mHeight;
 	ContextGuard *context;
-#if RTP_STREAM_SOURCE
+#if RTP_STREAM_SOURCE 
 	rtpStream *camera;
 #else
 	gstCamera *camera;
@@ -92,18 +92,17 @@ gstSource::gstSource(nvxio::ContextGuard *con)
     context = con;
 	std::ostringstream pipeline;
 
-#if GST_SOURCE
-#if GST_MULTICAST
-	pipeline << "udpsrc address=239.192.1.43 port=5004 caps=\"application/x-rtp, media=(string)video, clock-rate=(int)90000, encoding-name=(string)RAW, sampling=(string)YCbCr-4:2:2, depth=(string)8, width=(string)" << WIDTH << ", height=(string)" << HEIGHT << ", payload=(int)96\" ! ";
-    printf("udpsrc address=239.192.1.44 port=5004 \n");
+#if GST_SOURCE 
+#if RTP_MULTICAST
+	pipeline << "udpsrc address=" << IP_MULTICAST_IN << " port=5004 caps=\"application/x-rtp, media=(string)video, clock-rate=(int)90000, encoding-name=(string)RAW, sampling=(string)YCbCr-4:2:2, depth=(string)8, width=(string)" << WIDTH << ", height=(string)" << HEIGHT << ", payload=(int)96\" ! ";
 #else
 	pipeline << "udpsrc port=5004 caps=\"application/x-rtp, media=(string)video, clock-rate=(int)90000, encoding-name=(string)RAW, sampling=(string)YCbCr-4:2:2, depth=(string)8, width=(string)" << WIDTH << ", height=(string)" << HEIGHT << ", payload=(int)96\" ! ";
-#endif
+#endif 
 	pipeline << "queue  ! ";
 	pipeline << "rtpvrawdepay  ! ";
 	pipeline << "queue  ! ";
 	pipeline << "appsink name=mysink sync=false";
-#endif
+#endif 
 
 	static  std::string pip = pipeline.str();
 #if RTP_STREAM_SOURCE
@@ -112,14 +111,14 @@ gstSource::gstSource(nvxio::ContextGuard *con)
 	camera = gstCamera::Create(pip, HEIGHT, WIDTH);
 #endif
 }
-
+ 
 bool gstSource::open()
 {
 #if RTP_STREAM_SOURCE
-#if GST_MULTICAST
-	camera->rtpStreamIn((char*)"239.192.1.43", 5004);
+#if RTP_MULTICAST
+	camera->rtpStreamIn((char*)IP_MULTICAST_IN, 5004);
 #else
-	camera->rtpStreamIn((char*)"127.0.0.1", 5004);
+	camera->rtpStreamIn((char*)IP_UNICAST, 5004);
 #endif
 #endif
 
@@ -384,7 +383,7 @@ static bool read(const std::string& configFile,
 //
 #include <sys/time.h>
 #include <sys/resource.h>
-
+ 
 int main(int argc, char** argv)
 {
 	mytimer debugTimer;
@@ -394,8 +393,8 @@ int main(int argc, char** argv)
 	char *roi = 0;
 
 	// High priority
- //   int ret = 0;
- //   ret = setpriority(PRIO_PROCESS, 0, 10);
+    int ret = 0;
+    ret = setpriority(PRIO_PROCESS, 0, 10);
 
 #if GST_SOURCE
     std::cout << "Abaco Systems (ross.newman@abaco.com)\n\tModified motion estimation for Gstreamer enabled RTP streams.\n\tOriginal demonstration code by Nvidia (see source licence included in headers).\n\n";
@@ -415,7 +414,7 @@ int main(int argc, char** argv)
 		// Uses other video gst RTP video source
         std::string sourceUri = app.findSampleFilePath("pedestrians.mp4");
         app.addOption('s', "source", "Source URI", nvxio::OptionHandler::string(&sourceUri));
-#endif
+#endif 
         app.init(argc, argv);
 
         //
@@ -474,15 +473,15 @@ int main(int argc, char** argv)
 
 		rtpStream rtpStreaming(srcparams.frameHeight, srcparams.frameWidth);
 
-#if	GST_MULTICAST
-		rtpStreaming.rtpStreamOut((char*)"239.192.1.198", 5004);
-#else
-		rtpStreaming.rtpStreamOut((char*)"127.0.0.1", 5005);
+#if	RTP_MULTICAST
+		rtpStreaming.rtpStreamOut((char*)IP_MULTICAST_OUT, 5004);
+#else 
+		rtpStreaming.rtpStreamOut((char*)IP_UNICAST, 5005);
 #endif
 		rtpStreaming.Open();
 
-#endif
-
+#endif 
+ 
 #if HEADLESS
 		//
 		// Dummy event handler (headless)

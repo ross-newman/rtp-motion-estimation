@@ -48,8 +48,8 @@ endforeach()
 file(GLOB videoData ${PROJECT_SOURCE_DIR}/data/*)
 
 foreach(include ${videoData})
-	message("-- Copying ${include}")
-	file(COPY ${include} DESTINATION ${PROJECT_OUTPUT_DIR}/data)
+	message("-- Copyingggg ${include}")
+	file(COPY ${include} DESTINATION ${PROJECT_BINARY_DIR}/data)
 	#configure_file(${include} ${CMAKE_RUNTIME_OUTPUT_DIRECTORY} COPYONLY)
 endforeach()
 
