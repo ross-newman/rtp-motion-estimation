@@ -11,7 +11,9 @@ Please be patient whilst we fix some of the issues with this code.
 - [x] CUDA RBG to YUV conversion
 - [x] Output RTP stream with motion overlay
 - [x] Colour code arrows based on speed (green=slow, amber=medium, red=fast)
+
 Some additional features that are not currently planned.
+
 - [ ] Support for interlaces DEF STAN 00-82 streams
 - [ ] Support for other Uncompressed video formats (RGB, BGR etc ...)
 - [ ] SAP suipport
