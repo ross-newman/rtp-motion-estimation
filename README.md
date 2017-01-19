@@ -14,9 +14,9 @@ Please be patient whilst we fix some of the issues with this code.
 
 Some additional features that are not currently planned.
 
-- [ ] Support for interlaces DEF STAN 00-82 streams
+- [ ] Support for interlaced DEF STAN 00-82 streams
 - [ ] Support for other Uncompressed video formats (RGB, BGR etc ...)
-- [ ] SAP suipport
+- [ ] SAP support
 
 ## RTP streaming example for Military Ground Vehicles (DEF STAN 00-82)
 ![RTP Camera example](abaco/RTP-Camera-Example.PNG)
