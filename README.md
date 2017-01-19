@@ -1,7 +1,7 @@
 ![Abaco stripe](abaco/Abaco_background-1000x275.png)
 # Abaco Systems TX1 enabled Small Form Factor solutions   
 ## Modified motion-estimation for streaming video sources
-TX1 Motion Estimation performed on RTP streaming video (YUV colour space). Compatible with DEF-STAN 00-82
+TX1 Motion Estimation performed on RTP streaming video (YUV colour space as per RFQ 4175). Compatible with DEF-STAN 00-82
 
 Please be patient whilst we fix some of the issues with this code.
 
@@ -11,6 +11,12 @@ Please be patient whilst we fix some of the issues with this code.
 - [x] CUDA RBG to YUV conversion
 - [x] Output RTP stream with motion overlay
 - [x] Colour code arrows based on speed (green=slow, amber=medium, red=fast)
+
+Some additional features that are not currently planned.
+
+- [ ] Support for interlaced DEF STAN 00-82 streams
+- [ ] Support for other Uncompressed video formats (RGB, BGR etc ...)
+- [ ] SAP support
 
 ## RTP streaming example for Military Ground Vehicles (DEF STAN 00-82)
 ![RTP Camera example](abaco/RTP-Camera-Example.PNG)
@@ -47,15 +53,25 @@ make
 ```
 For jetson 64bit builds the architecte will be aarch64.
 
+#### 4. Modifying
+
+Some macros control how the demo can be run and there are located in [`config.h`](demos/config.h)
+* HEADLESS 0 - Dont put anything out on the local display. Usefull for headless operation.
+* GST_MULTICAST 1 - Set this for multicast sources
+* RTP_STREAM_SOURCE - Define to use RTP Stream class as source (not gstreamer)
+* GST_SOURCE 1 - 1 if RTP source, 0 if file source.
+* GST_RTP_SINK 1 - RTP Output
+* TIMEING_DEBUG 0 - Show timings in stdio
+
 ## Test
 There are several test scripts provided in the root directory.
-* [testFile01.sh] - Catch RTP output using Gstreamer
-* [testRtp01.sh] - Catch RTP output using Gstreamer
-* [testRtp02.sh] - Simple gst-launch-1.0 -v videotestsrc test with motion  (1280 x 720)
-* [testRtp03.sh] - Simple gst-launch-1.0 -v videotestsrc test without motion  (1280 x 720)
-* [testRtp04-syntheticvideo.sh] - Use a gstreamer videotessrc as input and RTP output (recommended)
-* [testRtp05-webcam.sh] - Use a webcam as input and RTP output 
-* [testRtp06-file.sh] - Use the test file 960 x 540 as input and RTP output 
+* [testFile01.sh](testFile01.sh) - Catch RTP output using Gstreamer
+* [testRtp01.sh](testRtp01.sh) - Catch RTP output using Gstreamer
+* [testRtp02.sh](testRtp02.sh) - Simple gst-launch-1.0 -v videotestsrc test with motion  (1280 x 720)
+* [testRtp03.sh](testRtp03.sh) - Simple gst-launch-1.0 -v videotestsrc test without motion  (1280 x 720)
+* [testRtp04-syntheticvideo.sh](testRtp04-syntheticvideo.sh) - Use a gstreamer videotessrc as input and RTP output (recommended)
+* [testRtp05-webcam.sh](testRtp05-webcam.sh) - Use a webcam as input and RTP output 
+* [testRtp06-file.sh](testRtp06-file.sh) - Use the test file 960 x 540 as input and RTP output 
 
 Below is the example gstreamer pipline of a moving ball that can be used to test the algorithm :
 
