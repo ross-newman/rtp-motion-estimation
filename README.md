@@ -1,7 +1,7 @@
 ![Abaco stripe](abaco/Abaco_background-1000x275.png)
 # Abaco Systems TX1 enabled Small Form Factor solutions   
 ## Modified motion-estimation for streaming video sources
-TX1 Motion Estimation performed on RTP streaming video (YUV colour space). Compatible with DEF-STAN 00-82
+TX1 Motion Estimation performed on RTP streaming video (YUV colour space as per RFQ 4175). Compatible with DEF-STAN 00-82
 
 Please be patient whilst we fix some of the issues with this code.
 
@@ -11,6 +11,10 @@ Please be patient whilst we fix some of the issues with this code.
 - [x] CUDA RBG to YUV conversion
 - [x] Output RTP stream with motion overlay
 - [x] Colour code arrows based on speed (green=slow, amber=medium, red=fast)
+Some additional features that are not currently planned.
+- [ ] Support for interlaces DEF STAN 00-82 streams
+- [ ] Support for other Uncompressed video formats (RGB, BGR etc ...)
+- [ ] SAP suipport
 
 ## RTP streaming example for Military Ground Vehicles (DEF STAN 00-82)
 ![RTP Camera example](abaco/RTP-Camera-Example.PNG)
