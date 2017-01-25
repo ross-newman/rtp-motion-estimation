@@ -76,8 +76,11 @@ There are several test scripts provided in the root directory.
 Below is the example gstreamer pipline of a moving ball that can be used to test the algorithm :
 
 ![Test video source](abaco/test-screenshot01.png)
+
 Using gstreamer as a test source. 
+
 ![Test video source](abaco/Motion-demo.png)
+
 Using a live RTP camera to stream video.
 
 ## Links
