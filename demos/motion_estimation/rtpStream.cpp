@@ -18,11 +18,12 @@ extern void DumpHex(const void* data, size_t size);
 #define PITCH 				4 // RGBX processing pitch
 #define GPU_COPY 			0 // GPU Async copy seems to decrease performance
 #define RTP_CHECK 			0 // 0 to disable RTP header checking
-#define RTP_THREADED 		0 // transmit and recieve in a thread. RX thread blocks TX does not
+#define RTP_THREADED 		1 // transmit and recieve in a thread. RX thread blocks TX does not
 
 #if RTP_TO_YUV_ONGPU
 #include "cudaYUV.h" 
 #else
+
 typedef struct float4 {
     float x;
     float y;
@@ -80,6 +81,7 @@ rtpStream::rtpStream(int height, int width) :
     gpuBuffer = 0;
     pthread_mutex_init(&mutex, NULL);
     bufferIn = (char*)malloc(height * width * 2); // Holds YUV data
+//	printf("[RTP] rtpStream %dx%d\n", mWidth, mHeight);
 }
 
 rtpStream::~rtpStream(void)
@@ -87,7 +89,7 @@ rtpStream::~rtpStream(void)
 	free(bufferIn);
 }
 
-/* Broadcast the stream to port 5004 */
+/* Broadcast the stream to port i.e. 5004 */
 void rtpStream::rtpStreamIn( char* hostname, int portno)
 {
 	printf("[RTP] rtpStreamIn %s %d\n", hostname, portno);

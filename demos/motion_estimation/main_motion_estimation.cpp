@@ -64,7 +64,7 @@ using namespace nvxio;
 class gstSource : public FrameSource
 {
 public:
-	gstSource(ContextGuard *con);
+	gstSource(ContextGuard *con, char* ip);
 	bool open();
     FrameSource::FrameStatus fetch(vx_image image, vx_uint32 timeout = 5 /*milliseconds*/);
     FrameSource::Parameters getConfiguration();
@@ -86,7 +86,7 @@ private:
 	void *GPUBufferRGB;
  };
 
-gstSource::gstSource(nvxio::ContextGuard *con)
+gstSource::gstSource(nvxio::ContextGuard *con, char* ip)
 {
 	GPUBufferRGB = 0;
     context = con;
@@ -94,9 +94,9 @@ gstSource::gstSource(nvxio::ContextGuard *con)
 
 #if GST_SOURCE 
 #if RTP_MULTICAST
-	pipeline << "udpsrc address=" << IP_MULTICAST_IN << " port=5004 caps=\"application/x-rtp, media=(string)video, clock-rate=(int)90000, encoding-name=(string)RAW, sampling=(string)YCbCr-4:2:2, depth=(string)8, width=(string)" << WIDTH << ", height=(string)" << HEIGHT << ", payload=(int)96\" ! ";
-#else
-	pipeline << "udpsrc port=5004 caps=\"application/x-rtp, media=(string)video, clock-rate=(int)90000, encoding-name=(string)RAW, sampling=(string)YCbCr-4:2:2, depth=(string)8, width=(string)" << WIDTH << ", height=(string)" << HEIGHT << ", payload=(int)96\" ! ";
+	pipeline << "udpsrc address=" << ip << " port=" << IP_PORT_IN << " caps=\"application/x-rtp, media=(string)video, clock-rate=(int)90000, encoding-name=(string)RAW, sampling=(string)YCbCr-4:2:2, depth=(string)8, width=(string)" << WIDTH << ", height=(string)" << HEIGHT << ", payload=(int)96\" ! ";
+#else 
+	pipeline << "udpsrc port=" << IP_PORT_IN << " caps=\"application/x-rtp, media=(string)video, clock-rate=(int)90000, encoding-name=(string)RAW, sampling=(string)YCbCr-4:2:2, depth=(string)8, width=(string)" << WIDTH << ", height=(string)" << HEIGHT << ", payload=(int)96\" ! ";
 #endif 
 	pipeline << "queue  ! ";
 	pipeline << "rtpvrawdepay  ! ";
@@ -104,10 +104,11 @@ gstSource::gstSource(nvxio::ContextGuard *con)
 	pipeline << "appsink name=mysink sync=false";
 #endif 
 
-	static  std::string pip = pipeline.str();
 #if RTP_STREAM_SOURCE
 	camera = new rtpStream(HEIGHT, WIDTH);
 #else
+	static  std::string pip = pipeline.str();
+	std::cout << pip << "\n";
 	camera = gstCamera::Create(pip, HEIGHT, WIDTH);
 #endif
 }
@@ -116,9 +117,9 @@ bool gstSource::open()
 {
 #if RTP_STREAM_SOURCE
 #if RTP_MULTICAST
-	camera->rtpStreamIn((char*)IP_MULTICAST_IN, 5004);
+	camera->rtpStreamIn((char*)IP_MULTICAST_IN, IP_PORT_IN);
 #else
-	camera->rtpStreamIn((char*)IP_UNICAST, 5004);
+	camera->rtpStreamIn((char*)IP_UNICAST_IN, IP_PORT_IN);
 #endif
 #endif
 
@@ -325,7 +326,6 @@ FrameSource::Parameters gstSource::getConfiguration()
 	param.fps = 25;
 	param.frameHeight = HEIGHT;
 	param.frameWidth = WIDTH;
-
 	return param;
 };
 
@@ -391,14 +391,25 @@ int main(int argc, char** argv)
 	vx_status status;
 	int deviceCount = 0;
 	char *roi = 0;
+	char *ipAddrIn = 0;
 
 	// High priority
     int ret = 0;
     ret = setpriority(PRIO_PROCESS, 0, 10);
 
 #if GST_SOURCE
-    std::cout << "Abaco Systems (ross.newman@abaco.com)\n\tModified motion estimation for Gstreamer enabled RTP streams.\n\tOriginal demonstration code by Nvidia (see source licence included in headers).\n\n";
+    std::cout << "Abaco Systems (ross.newman@abaco.com)\n\tModified motion estimation for Gstreamer enabled RTP streams.\n\tOriginal demonstration code by Nvidia (see source licence included in headers).\n";
+    std::cout << "Syntax:\n\tmotion_estimation [ipaddress]\n\tipaddress   input RTP source IP address\n\n";
 #endif
+
+#if RTP_MULTICAST // TODO : handle args better
+	if (argc==2)
+	{
+		ipAddrIn = argv[1];
+		printf("Using input multicast address %s (default=%s)\n", ipAddrIn, IP_MULTICAST_IN);
+	}
+#endif 
+
     try
     {
         nvxio::Application &app = nvxio::Application::get();
@@ -415,12 +426,17 @@ int main(int argc, char** argv)
         std::string sourceUri = app.findSampleFilePath("pedestrians.mp4");
         app.addOption('s', "source", "Source URI", nvxio::OptionHandler::string(&sourceUri));
 #endif 
+
+#if 0
         app.init(argc, argv);
+#else
+		int x =0;
+        app.init(x, (char**)0);
+#endif
 
         //
         // Reads and checks input parameters
         //
-
         IterativeMotionEstimator::Params params;
         std::string error;
         if (!read(configFile, params, error))
@@ -446,7 +462,12 @@ int main(int argc, char** argv)
         // Create a Frame Source
         //
 #if GST_SOURCE
-		gstSource *frameSource = new gstSource(&context);
+		
+		gstSource *frameSource;
+		if (ipAddrIn != 0)
+			frameSource = new gstSource(&context, ipAddrIn);
+		else
+			frameSource = new gstSource(&context, (char*)IP_MULTICAST_IN);
 #else
         std::unique_ptr<nvxio::FrameSource> frameSource(nvxio::createDefaultFrameSource(context, sourceUri));
 #endif
@@ -464,22 +485,19 @@ int main(int argc, char** argv)
 
         nvxio::FrameSource::Parameters frameConfig = frameSource->getConfiguration();
 
+
 #if GST_RTP_SINK
         //
         // Initalise RTP streaming output
         //
-
 		FrameSource::Parameters srcparams = frameSource->getConfiguration();
-
 		rtpStream rtpStreaming(srcparams.frameHeight, srcparams.frameWidth);
-
 #if	RTP_MULTICAST
-		rtpStreaming.rtpStreamOut((char*)IP_MULTICAST_OUT, 5004);
+		rtpStreaming.rtpStreamOut((char*)IP_MULTICAST_OUT, IP_PORT_OUT);
 #else 
-		rtpStreaming.rtpStreamOut((char*)IP_UNICAST, 5005);
+		rtpStreaming.rtpStreamOut((char*)IP_UNICAST_OUT, IP_PORT_OUT);
 #endif
 		rtpStreaming.Open();
-
 #endif 
  
 #if HEADLESS
@@ -495,6 +513,7 @@ int main(int argc, char** argv)
 		//
 		std::unique_ptr<nvxio::Render> render = nvxio::createDefaultRender(context, "Motion Estimation Demo",
 																		   frameConfig.frameWidth, frameConfig.frameHeight);
+
 
 		if (!render)
 		{
@@ -621,7 +640,6 @@ int main(int argc, char** argv)
 			vx_image motion = ime.getMotionField();
 
 #if !HEADLESS
-//gstSource::dumpVxImage(prevFrame);
 			render->putImage(prevFrame);
 
 			nvxio::Render::MotionFieldStyle mfStyle = {
@@ -660,7 +678,7 @@ int main(int argc, char** argv)
 				mb_width = frameConfig.frameWidth/2;
 				mb_height = frameConfig.frameHeight/2;
 
-				char* motion_buffer[mb_width * mb_height * sizeof(vx_float32)*2];
+				char motion_buffer[mb_width * mb_height * sizeof(vx_float32)*2];
 				const vx_rectangle_t motionrect = { 0, 0, mb_width, mb_height};
 				const vx_imagepatch_addressing_t src_addr = {
 					mb_width,
@@ -680,6 +698,7 @@ int main(int argc, char** argv)
 									VX_READ_ONLY,
 									VX_MEMORY_TYPE_HOST
 				);
+
 				if (status != VX_SUCCESS)
 				{
 					printf("[MOTION] vxCopyImagePatch motion data failed!\n");

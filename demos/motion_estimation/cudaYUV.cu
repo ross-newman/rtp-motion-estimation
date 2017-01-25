@@ -464,7 +464,7 @@ __device__ bool renderArrow(uint8_t* image, int direction, int speed, uint32_t x
 	int arrowType = 0;
 	int speedcolour = 0;
 
-    if (speed <=0) return true;
+    if (speed <=MOTION_SPEED_THRESHOLD) return true;
 
 	// Decide what arrow we need to draw
 	switch (direction)
