@@ -30,7 +30,7 @@ sudo apt-get install git cmake
 
 Then clone the rtp-motion-estimation repo:
 ``` bash
-git clone http://github.org/ross-abaco/rtp-motion-estimation
+git clone http://github.com/ross-abaco/rtp-motion-estimation
 ```
 
 #### 2. Configuring
