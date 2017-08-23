@@ -20,12 +20,12 @@
 // 
 // Connection details
 //
-#define IP_MULTICAST_IN     "239.192.2.40"
-#define IP_MULTICAST_OUT    "239.192.1.198"
+//#define IP_MULTICAST_IN     "239.192.2.40"
+//#define IP_MULTICAST_OUT    "239.192.1.198"
 #define IP_PORT_IN			5004
 #define IP_PORT_OUT   		5005
-#define IP_UNICAST_IN       "127.0.0.1"
-#define IP_UNICAST_OUT      "127.0.0.1"
+#define IP_RTP_IN       "127.0.0.1"
+#define IP_RTP_OUT      "127.0.0.1"
 
 //
 // Motion params

@@ -39,12 +39,22 @@
 #include <NVX/nvx_timer.hpp>
 #include <VX/vx_types.h>
 
+#if 0
+#include "NVX/Application.hpp"
+#include "NVX/ConfigParser.hpp"
+#include "NVX/FrameSource.hpp"
+#include "NVX/Render.hpp"
+#include "NVX/SyncTimer.hpp"
+#include "NVX/Utility.hpp"
+#else
 #include "NVXIO/Application.hpp"
 #include "NVXIO/ConfigParser.hpp"
 #include "NVXIO/FrameSource.hpp"
 #include "NVXIO/Render.hpp"
 #include "NVXIO/SyncTimer.hpp"
 #include "NVXIO/Utility.hpp"
+#endif
+
 // includes CUDA Runtime
 #include <cuda_runtime.h>
 
@@ -64,7 +74,7 @@ using namespace nvxio;
 class gstSource : public FrameSource
 {
 public:
-	gstSource(ContextGuard *con, char* ip);
+	gstSource(ContextGuard *con, std::string ip);
 	bool open();
     FrameSource::FrameStatus fetch(vx_image image, vx_uint32 timeout = 5 /*milliseconds*/);
     FrameSource::Parameters getConfiguration();
@@ -86,17 +96,17 @@ private:
 	void *GPUBufferRGB;
  };
 
-gstSource::gstSource(nvxio::ContextGuard *con, char* ip)
+gstSource::gstSource(nvxio::ContextGuard *con, std::string ip)
 {
 	GPUBufferRGB = 0;
     context = con;
 	std::ostringstream pipeline;
 
-#if GST_SOURCE 
-#if RTP_MULTICAST
-	pipeline << "udpsrc address=" << ip << " port=" << IP_PORT_IN << " caps=\"application/x-rtp, media=(string)video, clock-rate=(int)90000, encoding-name=(string)RAW, sampling=(string)YCbCr-4:2:2, depth=(string)8, width=(string)" << WIDTH << ", height=(string)" << HEIGHT << ", payload=(int)96\" ! ";
-#else 
-	pipeline << "udpsrc port=" << IP_PORT_IN << " caps=\"application/x-rtp, media=(string)video, clock-rate=(int)90000, encoding-name=(string)RAW, sampling=(string)YCbCr-4:2:2, depth=(string)8, width=(string)" << WIDTH << ", height=(string)" << HEIGHT << ", payload=(int)96\" ! ";
+#if GST_SOURCE
+#if GST_MULTICAST
+	pipeline << "udpsrc address=" << ip << " port=5004 caps=\"application/x-rtp, media=(string)video, clock-rate=(int)90000, encoding-name=(string)RAW, sampling=(string)YCbCr-4:2:2, depth=(string)8, width=(string)" << WIDTH << ", height=(string)" << HEIGHT << ", payload=(int)96\" ! ";
+#else
+	pipeline << "udpsrc port=5004 caps=\"application/x-rtp, media=(string)video, clock-rate=(int)90000, encoding-name=(string)RAW, sampling=(string)YCbCr-4:2:2, depth=(string)8, width=(string)" << WIDTH << ", height=(string)" << HEIGHT << ", payload=(int)96\" ! ";
 #endif 
 	pipeline << "queue  ! ";
 	pipeline << "rtpvrawdepay  ! ";
@@ -104,11 +114,10 @@ gstSource::gstSource(nvxio::ContextGuard *con, char* ip)
 	pipeline << "appsink name=mysink sync=false";
 #endif 
 
+	static  std::string pip = pipeline.str();
 #if RTP_STREAM_SOURCE
 	camera = new rtpStream(HEIGHT, WIDTH);
 #else
-	static  std::string pip = pipeline.str();
-	std::cout << pip << "\n";
 	camera = gstCamera::Create(pip, HEIGHT, WIDTH);
 #endif
 }
@@ -116,8 +125,8 @@ gstSource::gstSource(nvxio::ContextGuard *con, char* ip)
 bool gstSource::open()
 {
 #if RTP_STREAM_SOURCE
-#if RTP_MULTICAST
-	camera->rtpStreamIn((char*)IP_MULTICAST_IN, IP_PORT_IN);
+#if GST_MULTICAST
+	camera->rtpStreamIn((char*)ipaddr_src, 5004);
 #else
 	camera->rtpStreamIn((char*)IP_UNICAST_IN, IP_PORT_IN);
 #endif
@@ -385,28 +394,24 @@ static bool read(const std::string& configFile,
 #include <sys/resource.h>
  
 int main(int argc, char** argv)
-{
-	mytimer debugTimer;
-	double rtpproc_ms = 0;
-	vx_status status;
-	int deviceCount = 0;
-	char *roi = 0;
-	char *ipAddrIn = 0;
-
-	// High priority
-    int ret = 0;
-    ret = setpriority(PRIO_PROCESS, 0, 10);
-
+{ 
+    mytimer debugTimer;
+    double rtpproc_ms = 0;
+    vx_status status;
+    int deviceCount = 0;
+    char *roi = 0;
+    std::string ipaddr_src = IP_RTP_IN;
+    std::string ipaddr_dst = IP_RTP_OUT;
+    
 #if GST_SOURCE
-    std::cout << "Abaco Systems (ross.newman@abaco.com)\n\tModified motion estimation for Gstreamer enabled RTP streams.\n\tOriginal demonstration code by Nvidia (see source licence included in headers).\n";
-    std::cout << "Syntax:\n\tmotion_estimation [ipaddress]\n\tipaddress   input RTP source IP address\n\n";
+    std::cout << "Abaco Systems (ross.newman@abaco.com)\n\tModified motion estimation for Gstreamer enabled RTP streams.\n\tOriginal demonstration code by Nvidia (see source licence included in headers).\n\n";
 #endif
 
 #if RTP_MULTICAST // TODO : handle args better
 	if (argc==2)
 	{
 		ipAddrIn = argv[1];
-		printf("Using input multicast address %s (default=%s)\n", ipAddrIn, IP_MULTICAST_IN);
+		printf("Using input multicast address %s (default=%s)\n", ipaddr_dst, IP_MULTICAST_IN);
 	}
 #endif 
 
@@ -421,22 +426,21 @@ int main(int argc, char** argv)
         app.setDescription("This sample demonstrates Iterative Motion Estimation algorithm");
         std::string configFile = app.findSampleFilePath("motion_estimation_demo_config.ini");
         app.addOption('c', "config", "Config file path", nvxio::OptionHandler::string(&configFile));
+        app.addOption('o', "output", "IP multicast address", nvxio::OptionHandler::string(&ipaddr_dst));
+        app.addOption('i', "input", "IP address camera", nvxio::OptionHandler::string(&ipaddr_src));
 #if !GST_SOURCE
 		// Uses other video gst RTP video source
         std::string sourceUri = app.findSampleFilePath("pedestrians.mp4");
         app.addOption('s', "source", "Source URI", nvxio::OptionHandler::string(&sourceUri));
 #endif 
 
-#if 0
         app.init(argc, argv);
-#else
-		int x =0;
-        app.init(x, (char**)0);
-#endif
+
 
         //
         // Reads and checks input parameters
         //
+
         IterativeMotionEstimator::Params params;
         std::string error;
         if (!read(configFile, params, error))
@@ -444,7 +448,7 @@ int main(int argc, char** argv)
             std::cout << error;
             return nvxio::Application::APP_EXIT_CODE_INVALID_VALUE;
         }
-
+        
         //
         // Create OpenVX context
         //
@@ -462,12 +466,7 @@ int main(int argc, char** argv)
         // Create a Frame Source
         //
 #if GST_SOURCE
-		
-		gstSource *frameSource;
-		if (ipAddrIn != 0)
-			frameSource = new gstSource(&context, ipAddrIn);
-		else
-			frameSource = new gstSource(&context, (char*)IP_MULTICAST_IN);
+		gstSource *frameSource = new gstSource(&context, ipaddr_src);
 #else
         std::unique_ptr<nvxio::FrameSource> frameSource(nvxio::createDefaultFrameSource(context, sourceUri));
 #endif
@@ -490,13 +489,13 @@ int main(int argc, char** argv)
         //
         // Initalise RTP streaming output
         //
+
 		FrameSource::Parameters srcparams = frameSource->getConfiguration();
+
 		rtpStream rtpStreaming(srcparams.frameHeight, srcparams.frameWidth);
-#if	RTP_MULTICAST
-		rtpStreaming.rtpStreamOut((char*)IP_MULTICAST_OUT, IP_PORT_OUT);
-#else 
-		rtpStreaming.rtpStreamOut((char*)IP_UNICAST_OUT, IP_PORT_OUT);
-#endif
+
+		rtpStreaming.rtpStreamOut((char*)ipaddr_dst.c_str(), IP_PORT_OUT);
+
 		rtpStreaming.Open();
 #endif 
  

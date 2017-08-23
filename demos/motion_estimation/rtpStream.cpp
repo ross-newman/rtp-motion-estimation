@@ -15,9 +15,9 @@
 extern void DumpHex(const void* data, size_t size);
 
 #define RTP_TO_YUV_ONGPU 	1 // Offload colour conversion to GPU if set
-#define PITCH 				4 // RGBX processing pitch
-#define GPU_COPY 			0 // GPU Async copy seems to decrease performance
-#define RTP_CHECK 			0 // 0 to disable RTP header checking
+#define PITCH 			4 // RGBX processing pitch
+#define GPU_COPY 		0 // GPU Async copy seems to decrease performance
+#define RTP_CHECK 		0 // 0 to disable RTP header checking
 #define RTP_THREADED 		1 // transmit and recieve in a thread. RX thread blocks TX does not
 
 #if RTP_TO_YUV_ONGPU
@@ -109,6 +109,7 @@ bool rtpStream::Open()
 	if (mPortNoIn)
 	{
 		struct sockaddr_in si_me;
+		struct ip_mreq multi;
 
 		int i, slen = sizeof(si_me);
 
@@ -134,14 +135,13 @@ bool rtpStream::Open()
 		}
 #if	RTP_MULTICAST
 		{
-			struct ip_mreq multi;
 			
 			// Multicast
-			multi.imr_multiaddr.s_addr = inet_addr(IP_MULTICAST_IN);
+			multi.imr_multiaddr.s_addr = inet_addr(mHostnameIn);
 			multi.imr_interface.s_addr = htonl(INADDR_ANY);
 			if (setsockopt(mSockfdIn, IPPROTO_UDP, IP_ADD_MEMBERSHIP, &multi, sizeof(multi)) < 0)
 			{
-				printf("ERROR failed to join multicast group %s\n", IP_MULTICAST_IN);			
+				printf("ERROR failed to join multicast group %s\n", mHostnameIn);			
 			}
 		}
 #endif
@@ -212,11 +212,11 @@ void rtpStream::update_header(header *packet, int line, int last, int32_t timest
 	bzero((char *)packet, sizeof(header));
 	packet->rtp.protocol = RTP_VERSION << 30;
 	packet->rtp.protocol = packet->rtp.protocol | RTP_PAYLOAD_TYPE << 16;
-	packet->rtp.protocol = packet->rtp.protocol | sequence_number++;
+	packet->rtp.protocol = packet->rtp.protocol | sequence_number;
 	/* leaving other fields as zero TODO Fix*/
-	packet->rtp.timestamp = timestamp += (Hz90 / RTP_FRAMERATE);
+	packet->rtp.timestamp = timestamp;
 	packet->rtp.source = source;
-	packet->payload.extended_sequence_number = 0; /* TODO : Fix extended seq numbers */
+	packet->payload.extended_sequence_number = sequence_number++; /* TODO : Fix extended seq numbers */
 	packet->payload.line[0].length = mWidth*2;
 	packet->payload.line[0].line_number = line;
 	packet->payload.line[0].offset = 0;
@@ -224,8 +224,15 @@ void rtpStream::update_header(header *packet, int line, int last, int32_t timest
 	{
 		packet->rtp.protocol = packet->rtp.protocol | 1 << 23;
 	}
+#if 0
+	printf("--------------------------\n");
+	printf("0x%x, 0x%x, 0x%x \n", packet->rtp.protocol, packet->rtp.timestamp, packet->rtp.source);
+	printf("0x%x, 0x%x, 0x%x \n", packet->payload.line[0].length, packet->payload.line[0].line_number, packet->payload.line[0].offset);
+#endif
 }
 
+#define GPU_COPY 0
+#define RTP_CHECK 1
 void *ReceiveThread(void* data)
 {
 	tx_data *arg;
@@ -385,7 +392,6 @@ bool rtpStream::Capture( void** cpu, void** cuda, unsigned long timeout )
 	sched_param param;
 	pthread_attr_t tattr;
 	pthread_t rx;
-	arg_rx.rgbframe = 0;
 	arg_rx.gpuAddr = 0;
 	arg_rx.width = mWidth;
 	arg_rx.height = mHeight;
@@ -411,6 +417,9 @@ bool rtpStream::Capture( void** cpu, void** cuda, unsigned long timeout )
 	return true;
 }
 
+int32_t global_time = 0;
+char yuvdata[WIDTH * HEIGHT * 2];
+
 void *TransmitThread(void* data)
 {
     rtp_packet packet;
@@ -433,14 +442,17 @@ void *TransmitThread(void* data)
     pthread_mutex_lock(&arg->stream->mutex);
     {
 		struct timeval NTP_value;
-		int32_t time = 10000;
+
+	    global_time += (Hz90 / RTP_FRAMERATE);
+
 
 		for (c=0;c<(arg->height);c++)
 		{
 			int x,last = 0;
 			if (c==arg->height-1) last=1;
-				arg->stream->update_header((header*)&packet, c, last, time, RTP_SOURCE);
-
+			{
+				arg->stream->update_header((header*)&packet, c, last, global_time, RTP_SOURCE);
+			}
 #if RTP_TO_YUV_ONGPU
 			x = c * (arg->width * 2);
 			// Copy previously converted line into header
@@ -455,14 +467,21 @@ void *TransmitThread(void* data)
 			endianswap32((uint32_t *)&packet, sizeof(rtp_header)/4);
 			endianswap16((uint16_t *)&packet.head.payload, sizeof(payload_header)/2);
 #endif
-			n = sendto(arg->stream->mSockfdOut, (char *)&packet, 24+(arg->width*2), 0, (const sockaddr*)&arg->stream->mServeraddrOut, arg->stream->mServerlenOut);
+			n = sendto(arg->stream->mSockfdOut, (char *)&packet, 1280+24, 0, (const sockaddr*)&arg->stream->mServeraddrOut, arg->stream->mServerlenOut);
+//			if (n < 0)
+//				fprintf(stderr, "ERROR in sendto");
 		}
     }
     pthread_mutex_unlock(&arg->stream->mutex);
+
 }
 
 // Arguments sent to thread
 static tx_data arg_tx;
+pthread_attr_t tattr;
+sched_param param;
+pthread_t tx;
+
 int rtpStream::Transmit(char* rgbframe, bool gpuAddr)
 {
 	sched_param param;
@@ -473,17 +492,18 @@ int rtpStream::Transmit(char* rgbframe, bool gpuAddr)
 	arg_tx.width = mWidth;
 	arg_tx.height = mHeight;
 	arg_tx.stream = this;
-
+	pthread_join(tx, 0 );
 #if RTP_THREADED
 	// Elevate priority to get the RTP packets out
-    pthread_attr_init(&tattr);
-    pthread_attr_getschedparam(&tattr, &param);
-	param.sched_priority = 1;
-    pthread_attr_setschedparam(&tattr, &param);
+//    pthread_attr_init(&tattr);
+//    pthread_attr_getschedparam(&tattr, &param);
+//	param.sched_priority = 1;
+//    pthread_attr_setschedparam(&tattr, &param);
 
 	// Start a thread so we can start capturing the next frame while transmitting the data
 	pthread_create(&tx, &tattr, TransmitThread, &arg_tx );
 //	pthread_join(tx, 0 );
+//	pthread_attr_destroy(&tattr);
 #else
 	TransmitThread(&arg_tx);
 #endif
