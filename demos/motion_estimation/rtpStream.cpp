@@ -15,9 +15,9 @@
 extern void DumpHex(const void* data, size_t size);
 
 #define RTP_TO_YUV_ONGPU 	1 // Offload colour conversion to GPU if set
-#define PITCH 			4 // RGBX processing pitch
-#define GPU_COPY 		0 // GPU Async copy seems to decrease performance
-#define RTP_CHECK 		0 // 0 to disable RTP header checking
+#define PITCH 			    4 // RGBX processing pitch
+#define GPU_COPY 		    0 // GPU Async copy seems to decrease performance
+#define RTP_CHECK 		    1 // 0 to disable RTP header checking
 #define RTP_THREADED 		1 // transmit and recieve in a thread. RX thread blocks TX does not
 
 #if RTP_TO_YUV_ONGPU
@@ -231,8 +231,6 @@ void rtpStream::update_header(header *packet, int line, int last, int32_t timest
 #endif
 }
 
-#define GPU_COPY 0
-#define RTP_CHECK 1
 void *ReceiveThread(void* data)
 {
 	tx_data *arg;
@@ -317,7 +315,7 @@ void *ReceiveThread(void* data)
 			// Decode Header bits
 			marker = (packet->head.rtp.protocol & 0x00800000) >> 23;
 #if RTP_CHECK
-			printf("[RTP] seqNo %d, Packet %d, marker %d, Rx length %d, timestamp 0x%08x\n", seqNo, payloadType, marker, len, packet->head.rtp.timestamp);
+			printf("[RTP] seqNo %d, Packet %d, marker %d, Rx length %d, timestamp 0x%08x\n", seqNo, payloadType, marker, (int)len, packet->head.rtp.timestamp);
 #endif
 
 			//
@@ -484,14 +482,12 @@ pthread_t tx;
 
 int rtpStream::Transmit(char* rgbframe, bool gpuAddr)
 {
-	sched_param param;
-	pthread_attr_t tattr;
-	pthread_t tx;
 	arg_tx.rgbframe = rgbframe;
 	arg_tx.gpuAddr = gpuAddr;
 	arg_tx.width = mWidth;
 	arg_tx.height = mHeight;
 	arg_tx.stream = this;
+
 	pthread_join(tx, 0 );
 #if RTP_THREADED
 	// Elevate priority to get the RTP packets out

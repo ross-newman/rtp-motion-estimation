@@ -67,7 +67,7 @@ bool ConvertYUVtoRGBA( void* input, void** outputCPU, void** outputGPU, size_t w
 	{
 		if( CUDA_FAILED(cudaMalloc(&mRGBA, (width * height) * 4)) )
 		{
-			printf(LOG_CUDA "ConvertYUVtoRGBA -- failed to allocate memory for %ux%u RGBA texture\n", (int)width, (int)height);
+			printf(LOG_CUDA "ConvertYUVtoRGBA -- failed to allocate memory for %dx%d RGBA texture\n", (int)width, (int)height);
 			return false;
 		}
 	}
@@ -75,7 +75,7 @@ bool ConvertYUVtoRGBA( void* input, void** outputCPU, void** outputGPU, size_t w
 	// RTP is YUV
 	if( CUDA_FAILED(cudaYUVToRGBA((uint8_t*)input, (uint8_t*)mRGBA, (size_t)width, (size_t)height)) )
 	{
-		printf(LOG_CUDA "cudaYUVToRGBA -- failed to convert ux%u RGBA texture\n", (int)width, (int)height);
+		printf(LOG_CUDA "cudaYUVToRGBA -- failed to convert %dx%d RGBA texture\n", (int)width, (int)height);
 		return false;
 	}
 

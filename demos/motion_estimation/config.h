@@ -12,7 +12,7 @@
 //
 #define HEADLESS 1  		// Dont put anything out on the local display
 #define RTP_MULTICAST 0 	// Set this for multicast sources
-#define RTP_STREAM_SOURCE 1 // define to use RTP Stream class as source (not gstreamer)
+#define RTP_STREAM_SOURCE 0 // define to use RTP Stream class as source (not gstreamer)
 #define GST_SOURCE 1  		// 1 if RTP source, 0 if file source.
 #define GST_RTP_SINK 1		// RTP Output
 #define TIMEING_DEBUG 0		// Show timings
@@ -20,12 +20,17 @@
 // 
 // Connection details
 //
-//#define IP_MULTICAST_IN     "239.192.2.40"
-//#define IP_MULTICAST_OUT    "239.192.1.198"
+#define IP_MULTICAST_IN     "239.192.2.40"
+#define IP_MULTICAST_OUT    "239.192.1.198"
 #define IP_PORT_IN			5004
 #define IP_PORT_OUT   		5005
+#if 1
 #define IP_RTP_IN       "127.0.0.1"
 #define IP_RTP_OUT      "127.0.0.1"
+#else
+#define IP_RTP_IN       IP_MULTICAST_IN
+#define IP_RTP_OUT      IP_MULTICAST_OUT
+#endif
 
 //
 // Motion params

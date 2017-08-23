@@ -85,6 +85,7 @@ public:
 private:
     int mHeight;
 	ContextGuard *context;
+	std::string ipaddr;
 #if RTP_STREAM_SOURCE 
 	rtpStream *camera;
 #else
@@ -101,6 +102,8 @@ gstSource::gstSource(nvxio::ContextGuard *con, std::string ip)
 	GPUBufferRGB = 0;
     context = con;
 	std::ostringstream pipeline;
+	
+	ipaddr = ip;
 
 #if GST_SOURCE
 #if GST_MULTICAST
@@ -125,11 +128,7 @@ gstSource::gstSource(nvxio::ContextGuard *con, std::string ip)
 bool gstSource::open()
 {
 #if RTP_STREAM_SOURCE
-#if GST_MULTICAST
-	camera->rtpStreamIn((char*)ipaddr_src, 5004);
-#else
-	camera->rtpStreamIn((char*)IP_UNICAST_IN, IP_PORT_IN);
-#endif
+	camera->rtpStreamIn((char*)ipaddr.c_str(), IP_PORT_IN);
 #endif
 
 	if( !camera->Open() )
