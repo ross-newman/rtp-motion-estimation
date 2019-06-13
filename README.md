@@ -1,7 +1,5 @@
-![Abaco stripe](abaco/Abaco_background-1000x275.png)
-# Abaco Systems TX1 enabled Small Form Factor solutions   
 ## Modified motion-estimation for streaming video sources
-TX1 Motion Estimation performed on RTP streaming video (YUV colour space as per RFQ 4175). Compatible with DEF-STAN 00-82
+TX1/TX2 Motion Estimation performed on RTP streaming video (YUV colour space as per RFC 4175). Compatible with DEF-STAN 00-82
 
 Please be patient whilst we fix some of the issues with this code.
 
@@ -84,11 +82,8 @@ Using gstreamer as a test source.
 Using a live RTP camera to stream video.
 
 ## Links
-* [Abaco Systems](http://abaco.com)
 * [eLinux TX1](http://elinux.org/Jetson_TX1)
 * [Nvidia devtalk](https://devtalk.nvidia.com/default/board/164/)
-* [Abaco Systems MC10K1 - Tegra TK1 Mini COM Express module](https://www.abaco.com/products/mcom10-k1-mini-com-express)
-* [Abaco Systems GRA113 - Maxwel GPGPU 3U VPX](https://www.abaco.com/products/gra113-graphics-board)
+* [RFC4175](https://tools.ietf.org/html/rfc4175)
+* [GVA](https://en.wikipedia.org/wiki/GVA)
 
-
-![Abaco stripe](abaco/Abaco Footer1000x100.png)
